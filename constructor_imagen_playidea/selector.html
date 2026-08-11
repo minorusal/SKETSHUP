@@ -81,7 +81,7 @@
         const img=document.createElement('img');img.alt=file.name;
         const caption=document.createElement('span');caption.textContent=file.name;
         box.append(img,caption);$('previews').appendChild(box);
-        const reader=new FileReader();reader.onload=()=>{img.src=reader.result};reader.readAsDataURL(file);
+        const reader=new FileReader();reader.onload=()=>{img.src=reader.result};reader.readAsDataURL(file.blob);
       });
       $('imageCount').textContent=state.files.length===0?'Todavía no hay imágenes agregadas.':`${state.files.length} imagen${state.files.length===1?'':'es'} agregada${state.files.length===1?'':'s'} (máximo 8).`;
       $('prepare').disabled=state.files.length<1||!state.apiReady;
@@ -91,14 +91,17 @@
       const known=new Set(state.files.map(file=>`${file.name}|${file.size}|${file.lastModified}`));
       incoming.forEach(file=>{
         const key=`${file.name}|${file.size}|${file.lastModified}`;
-        if(!known.has(key)&&state.files.length<8){state.files.push(file);known.add(key)}
+        if(!known.has(key)&&state.files.length<8){
+          state.files.push({name:file.name,type:file.type,size:file.size,lastModified:file.lastModified,blob:file.slice(0,file.size,file.type||'application/octet-stream')});
+          known.add(key);
+        }
       });
       event.target.value='';
       renderPreviews();
     });
     $('prepare').addEventListener('click',async()=>{
       const form=new FormData();
-      state.files.forEach(file=>form.append('images',file,file.name));
+      state.files.forEach(file=>form.append('images',file.blob,file.name));
       form.append('case_id',state.reference.id);
       form.append('module_internal_mm',state.reference.module_internal_mm);
       $('prepare').disabled=true;$('result').style.display='none';
@@ -106,7 +109,10 @@
       try{
         const response=await fetch(`${state.reference.api_url}/analyze`,{method:'POST',body:form});
         const result=await response.json();
-        if(!response.ok) throw new Error(result.detail||`Error HTTP ${response.status}`);
+        if(!response.ok){
+          const detail=typeof result.detail==='string'?result.detail:JSON.stringify(result.detail||result);
+          throw new Error(detail||`Error HTTP ${response.status}`);
+        }
         showStatus(`Análisis ${result.analysis_id.slice(0,8)} terminado: ${result.image_count} vistas, ${result.totals.vertical} líneas verticales, ${result.totals.horizontal} horizontales y ${result.totals.diagonal} diagonales.`);
         $('result').textContent=JSON.stringify(result,null,2);$('result').style.display='block';
       }catch(error){showStatus(`No fue posible analizar las imágenes: ${error.message}`,'error')}
