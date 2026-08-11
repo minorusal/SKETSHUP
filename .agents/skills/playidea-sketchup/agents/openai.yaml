@@ -1,0 +1,4 @@
+interface:
+  display_name: "Play Idea SketchUp"
+  short_description: "Desarrollar plugins Ruby de Play Idea"
+  default_prompt: "Usa $playidea-sketchup para revisar o modificar los plugins de SketchUp de Play Idea."
