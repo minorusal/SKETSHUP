@@ -2,6 +2,7 @@ require 'sketchup.rb'
 require 'json'
 require 'fileutils'
 require 'net/http'
+require_relative 'synthetic_dataset'
 
 module PlayIdea
   module ConstructorImagen
@@ -233,6 +234,7 @@ module PlayIdea
         "Play Idea - Constructor desde Imágenes (v#{EXTENSION.version})"
       )
       menu.add_item('Cargar vistas de un juego') { start }
+      menu.add_item('Generar dataset sintético de postes') { generate_synthetic_dataset }
       file_loaded(__FILE__)
     end
   end
