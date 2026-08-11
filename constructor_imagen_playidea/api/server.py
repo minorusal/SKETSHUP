@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.2.2")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,7 +24,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.2.2"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.3.0"}
 
 
 class EncodedImage(BaseModel):
@@ -47,16 +47,90 @@ def classify_angle(angle_deg: float) -> str:
     return "diagonal"
 
 
-def cluster_positions(values: list[float], tolerance_px: float) -> list[float]:
-    if not values:
-        return []
-    clusters: list[list[float]] = []
-    for value in sorted(values):
-        if not clusters or value - np.mean(clusters[-1]) > tolerance_px:
-            clusters.append([value])
+def is_presentation_border(segment: dict, width: int, height: int) -> bool:
+    margin_x = width * 0.04
+    margin_y = height * 0.04
+    long_horizontal = segment["length_px"] >= width * 0.18
+    long_vertical = segment["length_px"] >= height * 0.18
+    on_top_or_bottom = (
+        max(segment["y1"], segment["y2"]) <= margin_y
+        or min(segment["y1"], segment["y2"]) >= height - margin_y
+    )
+    on_left_or_right = (
+        max(segment["x1"], segment["x2"]) <= margin_x
+        or min(segment["x1"], segment["x2"]) >= width - margin_x
+    )
+    return (long_horizontal and on_top_or_bottom) or (long_vertical and on_left_or_right)
+
+
+def build_post_candidates(segments: list[dict], width: int, height: int) -> list[dict]:
+    verticals = [
+        segment for segment in segments
+        if segment["kind"] == "vertical" and segment["length_px"] >= height * 0.045
+    ]
+    tolerance = max(8.0, width * 0.012)
+    clusters: list[list[dict]] = []
+    for segment in sorted(verticals, key=lambda item: (item["x1"] + item["x2"]) / 2.0):
+        center = (segment["x1"] + segment["x2"]) / 2.0
+        previous_center = np.mean([
+            (item["x1"] + item["x2"]) / 2.0 for item in clusters[-1]
+        ]) if clusters else None
+        if previous_center is None or center - previous_center > tolerance:
+            clusters.append([segment])
         else:
-            clusters[-1].append(value)
-    return [round(float(np.mean(cluster)), 1) for cluster in clusters]
+            clusters[-1].append(segment)
+
+    candidates = []
+    for cluster in clusters:
+        centers = [(item["x1"] + item["x2"]) / 2.0 for item in cluster]
+        center_mean = float(np.mean(centers))
+        if center_mean <= width * 0.04 or center_mean >= width * 0.96:
+            continue
+        ys = [coordinate for item in cluster for coordinate in (item["y1"], item["y2"])]
+        top, bottom = min(ys), max(ys)
+        span = bottom - top
+        longest = max(item["length_px"] for item in cluster)
+        if span < height * 0.10 and longest < height * 0.08:
+            continue
+        confidence = min(0.99, 0.22 + (span / height) * 0.95 + min(len(cluster), 6) * 0.055)
+        candidates.append({
+            "x_px": round(center_mean, 1),
+            "top_y_px": int(top),
+            "bottom_y_px": int(bottom),
+            "span_px": int(span),
+            "segment_count": len(cluster),
+            "confidence": round(confidence, 2),
+        })
+    return candidates
+
+
+def annotated_preview(image: np.ndarray, segments: list[dict], posts: list[dict]) -> str:
+    overlay = image.copy()
+    height, width = overlay.shape[:2]
+    margin_x, margin_y = round(width * 0.04), round(height * 0.04)
+    cv2.rectangle(overlay, (margin_x, margin_y), (width - margin_x, height - margin_y), (255, 180, 0), 2)
+    colors = {"horizontal": (50, 210, 50), "vertical": (40, 40, 240), "diagonal": (0, 210, 255)}
+    for segment in segments[:100]:
+        cv2.line(
+            overlay,
+            (segment["x1"], segment["y1"]),
+            (segment["x2"], segment["y2"]),
+            colors[segment["kind"]],
+            2,
+            cv2.LINE_AA,
+        )
+    for index, post in enumerate(posts, start=1):
+        x = round(post["x_px"])
+        cv2.line(overlay, (x, post["top_y_px"]), (x, post["bottom_y_px"]), (255, 0, 220), 3)
+        cv2.circle(overlay, (x, post["bottom_y_px"]), 6, (255, 0, 220), -1)
+        cv2.putText(overlay, str(index), (x + 5, post["top_y_px"] + 13), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (90, 0, 80), 1, cv2.LINE_AA)
+    preview_scale = min(1.0, 1000.0 / max(width, height))
+    if preview_scale < 1.0:
+        overlay = cv2.resize(overlay, None, fx=preview_scale, fy=preview_scale, interpolation=cv2.INTER_AREA)
+    ok, encoded = cv2.imencode(".jpg", overlay, [cv2.IMWRITE_JPEG_QUALITY, 82])
+    if not ok:
+        return ""
+    return "data:image/jpeg;base64," + base64.b64encode(encoded.tobytes()).decode("ascii")
 
 
 def analyze_image(raw: bytes, filename: str) -> dict:
@@ -84,9 +158,8 @@ def analyze_image(raw: bytes, filename: str) -> dict:
         maxLineGap=max(8, round(minimum * 0.35)),
     )
 
-    segments = []
-    counts = {"horizontal": 0, "vertical": 0, "diagonal": 0}
-    vertical_centers = []
+    raw_segments = []
+    raw_counts = {"horizontal": 0, "vertical": 0, "diagonal": 0}
     if lines is not None:
         for packed in lines[:, 0]:
             x1, y1, x2, y2 = [int(value) for value in packed]
@@ -94,10 +167,8 @@ def analyze_image(raw: bytes, filename: str) -> dict:
             length = math.hypot(dx, dy)
             angle = math.degrees(math.atan2(dy, dx))
             kind = classify_angle(angle)
-            counts[kind] += 1
-            if kind == "vertical":
-                vertical_centers.append((x1 + x2) / 2.0)
-            segments.append(
+            raw_counts[kind] += 1
+            raw_segments.append(
                 {
                     "x1": x1,
                     "y1": y1,
@@ -109,16 +180,21 @@ def analyze_image(raw: bytes, filename: str) -> dict:
                 }
             )
 
-    segments.sort(key=lambda item: item["length_px"], reverse=True)
-    post_candidates = cluster_positions(vertical_centers, max(8.0, width * 0.012))
+    raw_segments.sort(key=lambda item: item["length_px"], reverse=True)
+    segments = [segment for segment in raw_segments if not is_presentation_border(segment, width, height)]
+    counts = {kind: sum(1 for segment in segments if segment["kind"] == kind) for kind in ("horizontal", "vertical", "diagonal")}
+    post_candidates = build_post_candidates(segments, width, height)
     return {
         "filename": filename,
         "original_size": {"width": original_width, "height": original_height},
         "analysis_size": {"width": width, "height": height},
         "edge_pixels": int(np.count_nonzero(edges)),
+        "raw_line_counts": raw_counts,
         "line_counts": counts,
-        "post_candidate_x_px": post_candidates,
+        "discarded_border_segments": len(raw_segments) - len(segments),
+        "post_candidates": post_candidates,
         "strongest_segments": segments[:120],
+        "overlay_data_url": annotated_preview(image, segments, post_candidates),
     }
 
 

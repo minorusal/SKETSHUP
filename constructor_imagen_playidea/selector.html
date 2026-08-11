@@ -20,6 +20,7 @@
     #status.error{background:#fdeaea;color:#8b1d1d}#status.working{background:#eaf3fb;color:#174d7b}
     .spinner{display:inline-block;width:13px;height:13px;margin-right:7px;border:2px solid #8fb2d2;border-top-color:#174d7b;border-radius:50%;vertical-align:-2px;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
     #result{display:none;margin-top:10px;padding:10px;max-height:220px;overflow:auto;border-radius:6px;background:#152536;color:#d7ecff;font:11px/1.45 monospace;white-space:pre-wrap}
+    #analysisPreviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:12px}.analysis-view{overflow:hidden;border:1px solid #b9c7d4;border-radius:7px;background:#fff}.analysis-view img{display:block;width:100%;height:auto}.analysis-view div{padding:8px;font-size:11px;line-height:1.4}
     .warning{padding:10px;border-left:4px solid #e6a318;background:#fff7df;color:#604900;font-size:12px;line-height:1.45}
   </style>
 </head>
@@ -45,6 +46,7 @@
       <div class="warning"><b>Alcance de esta versión:</b> OpenCV analizará localmente bordes, líneas, orientaciones y candidatos a postes. Todavía no crea la geometría 3D.</div>
       <button id="prepare" disabled>Analizar vistas localmente</button>
       <div id="status"></div>
+      <div id="analysisPreviews"></div>
       <pre id="result"></pre>
     </section>
   </main>
@@ -111,6 +113,7 @@
     $('prepare').addEventListener('click',async()=>{
       const payload={case_id:state.reference.id,module_internal_mm:state.reference.module_internal_mm,images:state.files.map(file=>({name:file.name,data_url:file.dataUrl}))};
       $('prepare').disabled=true;$('result').style.display='none';
+      $('analysisPreviews').innerHTML='';
       showStatus(`Analizando ${state.files.length} vista${state.files.length===1?'':'s'} con OpenCV…`,'working');
       try{
         const response=await fetch(`${state.reference.api_url}/analyze-json`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -120,7 +123,14 @@
           throw new Error(detail||`Error HTTP ${response.status}`);
         }
         showStatus(`Análisis ${result.analysis_id.slice(0,8)} terminado: ${result.image_count} vistas, ${result.totals.vertical} líneas verticales, ${result.totals.horizontal} horizontales y ${result.totals.diagonal} diagonales.`);
-        $('result').textContent=JSON.stringify(result,null,2);$('result').style.display='block';
+        result.views.forEach((view,index)=>{
+          const card=document.createElement('div');card.className='analysis-view';
+          const img=document.createElement('img');img.src=view.overlay_data_url;img.alt=`Análisis vista ${index+1}`;
+          const text=document.createElement('div');text.textContent=`Vista ${index+1}: ${view.post_candidates.length} candidatos a poste; ${view.discarded_border_segments} segmentos de marco descartados.`;
+          card.append(img,text);$('analysisPreviews').appendChild(card);
+        });
+        const compact={...result,views:result.views.map(view=>{const copy={...view};delete copy.overlay_data_url;return copy})};
+        $('result').textContent=JSON.stringify(compact,null,2);$('result').style.display='block';
       }catch(error){showStatus(`No fue posible analizar las imágenes: ${error.message}`,'error')}
       finally{$('prepare').disabled=state.files.length<1||!state.apiReady}
     });
