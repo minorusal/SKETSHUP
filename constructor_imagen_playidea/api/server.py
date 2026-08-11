@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.14.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.15.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,7 +26,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.14.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.15.0"}
 
 
 class EncodedImage(BaseModel):
@@ -56,18 +56,25 @@ def training_dataset_dir() -> Path:
 POST_WINDOW = (32, 128)
 POST_HOG = cv2.HOGDescriptor(POST_WINDOW, (16, 16), (8, 8), (8, 8), 9)
 _post_model_cache: tuple[float, object] | None = None
+_offset_model_cache: dict[str, tuple[float, object]] = {}
+_training_mode = False
 
 
 def post_model_path() -> Path:
     return training_dataset_dir() / "models" / "post_detector.xml"
 
 
+def offset_model_path(axis: str) -> Path:
+    return training_dataset_dir() / "models" / f"post_offset_{axis}.xml"
+
+
 def post_patch(image: np.ndarray, candidate: dict) -> np.ndarray:
     height, width = image.shape[:2]
     half_width = max(10, round(width * 0.018))
     x = round(candidate["x_px"])
-    y1 = max(0, round(candidate["top_y_px"]) - 5)
-    y2 = min(height, round(candidate["bottom_y_px"]) + 6)
+    context_y = max(8, round((candidate["bottom_y_px"] - candidate["top_y_px"]) * 0.22))
+    y1 = max(0, round(candidate["top_y_px"]) - context_y)
+    y2 = min(height, round(candidate["bottom_y_px"]) + context_y)
     x1, x2 = max(0, x - half_width), min(width, x + half_width + 1)
     crop = image[y1:y2, x1:x2]
     if crop.size == 0:
@@ -91,8 +98,21 @@ def load_post_model():
     return _post_model_cache[1]
 
 
+def load_offset_model(axis: str):
+    path = offset_model_path(axis)
+    if not path.exists():
+        return None
+    modified = path.stat().st_mtime
+    cached = _offset_model_cache.get(axis)
+    if cached is None or cached[0] != modified:
+        _offset_model_cache[axis] = (modified, cv2.ml.SVM_load(str(path)))
+    return _offset_model_cache[axis][1]
+
+
 def apply_learned_post_model(image: np.ndarray, candidates: list[dict]) -> None:
     model = load_post_model()
+    offset_models = None if _training_mode else {axis: load_offset_model(axis) for axis in ("x", "top", "bottom")}
+    height, width = image.shape[:2]
     for candidate in candidates:
         if model is None:
             candidate["structural_post"] = candidate["structural_blue"]
@@ -102,6 +122,19 @@ def apply_learned_post_model(image: np.ndarray, candidates: list[dict]) -> None:
         _unused, prediction = model.predict(descriptor)
         candidate["structural_post"] = bool(prediction[0, 0] > 0)
         candidate["detector_source"] = "learned_hog_svm"
+        if candidate["structural_post"] and offset_models and all(offset_models.values()):
+            candidate["raw_x_px"] = candidate["x_px"]
+            candidate["raw_top_y_px"] = candidate["top_y_px"]
+            candidate["raw_bottom_y_px"] = candidate["bottom_y_px"]
+            offsets = {}
+            for axis, offset_model in offset_models.items():
+                _unused, value = offset_model.predict(descriptor)
+                offsets[axis] = float(value[0, 0])
+            candidate["x_px"] = round(float(np.clip(candidate["x_px"] + offsets["x"] * width, 0, width - 1)), 1)
+            candidate["top_y_px"] = int(np.clip(candidate["top_y_px"] + offsets["top"] * height, 0, height - 2))
+            candidate["bottom_y_px"] = int(np.clip(candidate["bottom_y_px"] + offsets["bottom"] * height, candidate["top_y_px"] + 1, height - 1))
+            candidate["span_px"] = candidate["bottom_y_px"] - candidate["top_y_px"]
+            candidate["position_source"] = "learned_endpoint_regression"
 
 
 def annotation_matches(candidate: dict, post: dict, width: int, height: int) -> bool:
@@ -112,27 +145,38 @@ def annotation_matches(candidate: dict, post: dict, width: int, height: int) -> 
 
 
 def train_post_detector() -> dict:
+    global _training_mode
     descriptors, labels = [], []
+    positive_descriptors, offset_targets = [], {"x": [], "top": [], "bottom": []}
     example_count = 0
-    for annotation_path in sorted(training_dataset_dir().glob("ejemplo_*/annotations.json")):
-        annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
-        example_count += 1
-        for image_record, view in zip(annotation["images"], annotation["views"]):
-            image = cv2.imread(str(annotation_path.parent / image_record["file"]))
-            if image is None:
-                continue
-            scale = min(1.0, 1600.0 / max(image.shape[:2]))
-            if scale < 1.0:
-                image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-            analysis = analyze_image((annotation_path.parent / image_record["file"]).read_bytes(), image_record["file"])
-            posts = view.get("posts", [])
-            for candidate in analysis["post_candidates"]:
-                label = 1 if any(annotation_matches(candidate, post, image.shape[1], image.shape[0]) for post in posts) else -1
-                patch = post_patch(image, candidate)
-                for variant in (patch, cv2.flip(patch, 1), cv2.convertScaleAbs(patch, alpha=0.82, beta=15)):
-                    gray = cv2.cvtColor(variant, cv2.COLOR_BGR2GRAY)
-                    descriptors.append(POST_HOG.compute(gray).reshape(-1))
-                    labels.append(label)
+    _training_mode = True
+    try:
+        for annotation_path in sorted(training_dataset_dir().glob("ejemplo_*/annotations.json")):
+            annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
+            example_count += 1
+            for image_record, view in zip(annotation["images"], annotation["views"]):
+                image = cv2.imread(str(annotation_path.parent / image_record["file"]))
+                if image is None:
+                    continue
+                scale = min(1.0, 1600.0 / max(image.shape[:2]))
+                if scale < 1.0:
+                    image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+                analysis = analyze_image((annotation_path.parent / image_record["file"]).read_bytes(), image_record["file"])
+                posts = view.get("posts", [])
+                for candidate in analysis["post_candidates"]:
+                    matches = [post for post in posts if annotation_matches(candidate, post, image.shape[1], image.shape[0])]
+                    matched = min(matches, key=lambda post: abs(candidate["x_px"] - post["x"]), default=None)
+                    label = 1 if matched else -1
+                    descriptor = post_descriptor(image, candidate)
+                    descriptors.append(descriptor); labels.append(label)
+                    descriptors.append(post_descriptor(cv2.convertScaleAbs(image, alpha=0.82, beta=15), candidate)); labels.append(label)
+                    if matched:
+                        positive_descriptors.append(descriptor)
+                        offset_targets["x"].append((matched["x"] - candidate["x_px"]) / image.shape[1])
+                        offset_targets["top"].append((matched["top_y"] - candidate["top_y_px"]) / image.shape[0])
+                        offset_targets["bottom"].append((matched["bottom_y"] - candidate["bottom_y_px"]) / image.shape[0])
+    finally:
+        _training_mode = False
     positives, negatives = labels.count(1), labels.count(-1)
     if positives < 6 or negatives < 6:
         raise HTTPException(status_code=422, detail=f"Datos insuficientes: {positives} positivos y {negatives} negativos.")
@@ -147,10 +191,23 @@ def train_post_detector() -> dict:
     path = post_model_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     svm.save(str(path))
-    metadata = {"examples": example_count, "positive_samples": positives, "negative_samples": negatives, "descriptor": "HOG", "model": path.name}
+    regression_samples = np.asarray(positive_descriptors, dtype=np.float32)
+    regression_mae = {}
+    for axis in ("x", "top", "bottom"):
+        target = np.asarray(offset_targets[axis], dtype=np.float32)
+        regressor = cv2.ml.SVM_create()
+        regressor.setType(cv2.ml.SVM_EPS_SVR); regressor.setKernel(cv2.ml.SVM_RBF)
+        regressor.setC(8.0); regressor.setGamma(0.02); regressor.setP(0.004)
+        if not regressor.train(regression_samples, cv2.ml.ROW_SAMPLE, target):
+            raise HTTPException(status_code=500, detail=f"No se pudo entrenar el ajuste {axis}.")
+        regressor.save(str(offset_model_path(axis)))
+        _unused, predicted = regressor.predict(regression_samples)
+        regression_mae[axis] = round(float(np.mean(np.abs(predicted.reshape(-1) - target))), 5)
+    metadata = {"examples": example_count, "positive_samples": positives, "negative_samples": negatives, "position_samples": len(positive_descriptors), "regression_mae_normalized": regression_mae, "descriptor": "HOG", "model": path.name}
     (path.parent / "post_detector.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-    global _post_model_cache
+    global _post_model_cache, _offset_model_cache
     _post_model_cache = None
+    _offset_model_cache = {}
     return {"ok": True, **metadata, "path": str(path)}
 
 
