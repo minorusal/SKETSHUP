@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Alberca de Esponjas</title>
+  <style>
+    *{box-sizing:border-box} body{margin:0;background:#edf1f5;color:#17202a;font-family:Arial,sans-serif}
+    header{padding:16px 20px;background:#173b68;color:white} h1{margin:0 0 5px;font-size:19px} header p{margin:0;opacity:.82;font-size:12px}
+    main{padding:16px}.card{background:white;padding:17px;border-radius:10px;box-shadow:0 2px 9px #0002}
+    h2{margin:0 0 12px;color:#173b68;font-size:16px}label{display:block;margin:10px 0 5px;font-size:12px;font-weight:bold;color:#455463}
+    input,select{width:100%;padding:9px;border:1px solid #aeb8c2;border-radius:6px;background:white}
+    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .grid3 label{text-align:center}
+    button{width:100%;padding:12px;border:0;border-radius:7px;background:#e56b18;color:white;font-weight:bold;cursor:pointer;margin-top:14px}button:hover{background:#c8580f}
+    .note{font-size:11px;color:#6c7882;margin-top:9px;line-height:1.5}
+    #summary{margin:12px 0 0;padding:11px;border-radius:7px;background:#eaf1f8;color:#234f7d;font-size:13px;line-height:1.5}
+    .radios{display:flex;gap:14px;margin:10px 0 5px}
+    .radios label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:bold;color:#455463;margin:0}
+    .radios input{width:auto}
+  </style>
+</head>
+<body>
+  <header><h1>Alberca de Esponjas Play Idea</h1><p>Llena un volumen con cubos de esponja en posición y rotación aleatorias.</p></header>
+  <main>
+    <section class="card">
+      <h2>Medida del volumen a llenar</h2>
+      <div class="grid3">
+        <div><label for="width">Ancho (m)</label><input id="width" type="number" min=".01" step=".0001"></div>
+        <div><label for="height">Alto (m)</label><input id="height" type="number" min=".01" step=".0001"></div>
+        <div><label for="length">Largo (m)</label><input id="length" type="number" min=".01" step=".0001"></div>
+      </div>
+      <label for="cubeSize">Tamaño de cubo (cm)</label>
+      <input id="cubeSize" type="number" min="1" step=".1">
+      <h2 style="margin-top:18px">Color</h2>
+      <div class="radios">
+        <label><input type="radio" name="colorMode" value="mixed" checked>Mezcla aleatoria</label>
+        <label><input type="radio" name="colorMode" value="single">Un solo color</label>
+      </div>
+      <select id="color"><option>Azul</option><option>Rojo</option><option>Amarillo</option><option>Verde</option><option>Naranja</option></select>
+      <label for="code">Código de la alberca</label><input id="code" placeholder="(automático)">
+      <div id="summary"></div>
+      <button id="create">Crear alberca de esponjas</button>
+      <p class="note">Los cubos miden todos lo mismo -tamaño de cubo elegido arriba- pero cada uno se coloca con una posición y rotación al azar, con traslape entre vecinos, simulando una alberca de esponjas real.</p>
+    </section>
+  </main>
+  <script>
+    const $=id=>document.getElementById(id);
+    function colorMode(){return document.querySelector('input[name="colorMode"]:checked').value}
+    function updateSummary(){
+      const w=+$('width').value,h=+$('height').value,l=+$('length').value,cs=+$('cubeSize').value;
+      if(!(w>0&&h>0&&l>0&&cs>0)){$('summary').textContent='';return}
+      const csM=cs/100;
+      const nx=Math.max(Math.round(w/csM),1),ny=Math.max(Math.round(l/csM),1),nz=Math.max(Math.round(h/csM),1);
+      const total=nx*ny*nz;
+      $('summary').innerHTML=`Volumen ${w}m × ${h}m × ${l}m con cubos de ${cs}cm ⇒ aprox. <b>${total} cubos</b> (${nx} × ${nz} × ${ny}).`;
+    }
+    $('color').style.display='none';
+    document.querySelectorAll('input[name="colorMode"]').forEach(r=>r.addEventListener('change',()=>{
+      $('color').style.display=colorMode()==='single'?'block':'none';
+    }));
+    ['width','height','length','cubeSize'].forEach(id=>$(id).addEventListener('input',updateSummary));
+    window.loadDefaults=data=>{
+      $('width').value=$('length').value=data.default_spacing_m;
+      $('height').value=(data.default_spacing_m/2).toFixed(4);
+      $('cubeSize').value=data.default_cube_size_cm;
+      updateSummary();
+    };
+    $('create').onclick=()=>{
+      sketchup.createFoamPit({
+        width_m:+$('width').value, height_m:+$('height').value, length_m:+$('length').value,
+        cube_size_cm:+$('cubeSize').value,
+        color_mode:colorMode(), color:$('color').value,
+        code:$('code').value
+      });
+    };
+    document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
+  </script>
+</body>
+</html>

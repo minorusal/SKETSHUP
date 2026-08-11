@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Colorear Tubos de Esponja</title>
+  <style>
+    *{box-sizing:border-box} body{margin:0;background:#edf1f5;color:#17202a;font-family:Arial,sans-serif}
+    header{padding:16px 20px;background:#173b68;color:white} h1{margin:0 0 5px;font-size:19px} header p{margin:0;opacity:.82;font-size:12px}
+    main{padding:16px}.card{background:white;padding:17px;border-radius:10px;box-shadow:0 2px 9px #0002}
+    h2{margin:0 0 4px;color:#173b68;font-size:16px}
+    .sub{font-size:12px;color:#6c7882;margin:0 0 12px}
+    .palette{display:flex;flex-direction:column;gap:8px}
+    .swatch{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid #d7dee5;border-radius:7px;cursor:pointer;user-select:none}
+    .swatch:hover{background:#f4f7fa}
+    .swatch input{width:auto;margin:0}
+    .swatch .dot{width:20px;height:20px;border-radius:50%;border:1px solid #0002;flex:0 0 auto}
+    .swatch .label{font-size:13px;font-weight:bold;color:#33404b}
+    .swatch .hex{font-size:11px;color:#8b97a3;margin-left:auto}
+    #count{margin-top:12px;font-size:12px;color:#455463;font-weight:bold}
+    button{width:100%;padding:12px;border:0;border-radius:7px;background:#e56b18;color:white;font-weight:bold;cursor:pointer;margin-top:14px}button:hover{background:#c8580f}
+    button:disabled{background:#c7ced4;cursor:not-allowed}
+    .note{font-size:11px;color:#6c7882;margin-top:9px;line-height:1.5}
+    #error{margin:12px 0 0;padding:11px;border-radius:7px;background:#fbe9e7;color:#a3311d;font-size:13px;line-height:1.5;display:none}
+  </style>
+</head>
+<body>
+  <header><h1>Colorear Tubos de Esponja Play Idea</h1><p>Detecta todos los tubos de esponja (~85mm de diámetro) en el modelo completo y los colorea -no hace falta seleccionar nada antes.</p></header>
+  <main>
+    <section class="card">
+      <h2>¿Cuántos y cuáles colores usar?</h2>
+      <p class="sub">Marca los colores que quieras usar -mínimo 1, máximo 8-. Solo puedes elegir de este catálogo fijo, no colores libres. Dos tubos que se tocan en el mismo nodo nunca comparten color -salvo en un nodo con más colores marcados que tubos disponibles-.</p>
+      <div class="palette" id="palette"></div>
+      <div id="count"></div>
+      <div id="error"></div>
+      <button id="submit">Colorear tubos</button>
+      <p class="note">El color de cada tubo se decide por su identificador interno, no por su posición, así que la selección de colores sale bien mezclada y repetible entre corridas.</p>
+    </section>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+
+    function updateCount() {
+      const checked = document.querySelectorAll('.palette input:checked').length;
+      $('count').textContent = `Seleccionados: ${checked} / 8`;
+      $('submit').disabled = checked === 0;
+    }
+
+    window.loadPalette = palette => {
+      const container = $('palette');
+      container.innerHTML = '';
+      palette.forEach((color, i) => {
+        const row = document.createElement('label');
+        row.className = 'swatch';
+        row.innerHTML = `
+          <input type="checkbox" value="${color.hex}" checked>
+          <span class="dot" style="background:#${color.hex}"></span>
+          <span class="label">${color.label}</span>
+          <span class="hex">#${color.hex}</span>
+        `;
+        row.querySelector('input').addEventListener('change', updateCount);
+        container.appendChild(row);
+      });
+      updateCount();
+    };
+
+    function showError(message) {
+      const box = $('error');
+      box.textContent = message;
+      box.style.display = message ? 'block' : 'none';
+    }
+    window.showError = showError;
+
+    $('submit').onclick = () => {
+      showError('');
+      const colors = Array.from(document.querySelectorAll('.palette input:checked')).map(el => el.value);
+      if (colors.length === 0) {
+        showError('Elige al menos un color de la lista.');
+        return;
+      }
+      sketchup.colorTubes({ colors });
+    };
+
+    document.addEventListener('DOMContentLoaded', () => sketchup.ready());
+  </script>
+</body>
+</html>

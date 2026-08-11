@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Constructor Automático</title>
+  <style>
+    *{box-sizing:border-box} html,body{height:100%} body{margin:0;background:#edf1f5;color:#17202a;font-family:Arial,sans-serif}
+    header{padding:16px 20px;background:#173b68;color:white} h1{margin:0 0 4px;font-size:19px} header p{margin:0;opacity:.82;font-size:12px}
+    main{padding:16px}
+    label{display:block;margin:10px 0 5px;font-size:12px;font-weight:bold;color:#455463}
+    input,select{width:100%;padding:9px;border:1px solid #aeb8c2;border-radius:6px;background:white}
+    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .grid3 label{text-align:center}
+    .check{display:flex;align-items:center;gap:8px;margin:13px 0}.check input{width:auto}
+    #summary{margin:14px 0;padding:11px;border-radius:7px;background:#eaf1f8;color:#234f7d;font-size:13px;line-height:1.6}
+    button{width:100%;padding:12px;border:0;border-radius:7px;background:#e56b18;color:white;font-weight:bold;cursor:pointer;margin-top:6px}
+    button:hover{background:#c8580f}
+    .note{font-size:11px;color:#6c7882;margin-top:9px}
+    #toboganFields{display:none;margin:4px 0 8px 22px;padding:10px;border-left:3px solid #26934f;background:#eafaf0}
+    #toboganFields.open{display:block}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Construcción de Juegos Play Idea (automática)</h1>
+    <p>Dale ancho, largo y alto reales -en metros- y arma solo la cuadrícula y la torre.</p>
+  </header>
+  <main>
+    <div class="grid3">
+      <div><label for="ancho">Ancho (m)</label><input id="ancho" type="number" min=".1" step=".01" value="3.5"></div>
+      <div><label for="largo">Largo (m)</label><input id="largo" type="number" min=".1" step=".01" value="2.5"></div>
+      <div><label for="alto">Alto TOTAL (m)</label><input id="alto" type="number" min=".1" step=".01" value="2.5"></div>
+    </div>
+    <label for="color">Color de los tubos</label>
+    <select id="color"><option>Azul</option><option>Rojo</option><option>Amarillo</option><option>Verde</option><option>Naranja</option><option>Gris</option><option>Negro</option></select>
+    <label for="code">Código de la estructura</label><input id="code" placeholder="se genera solo si lo dejas vacío">
+    <label class="check"><input id="padding" type="checkbox" checked>Recubrir con espuma (con cinchos cada 15cm)</label>
+    <label class="check"><input id="solera" type="checkbox" checked>Agregar soleras de fijación (placa de 1")</label>
+    <label class="check"><input id="platform" type="checkbox">Agregar plataformas (piso)</label>
+    <label class="check"><input id="net" type="checkbox">Agregar malla de seguridad</label>
+    <label class="check"><input id="tobogan" type="checkbox">Agregar tobogán (une la orilla de la estructura, altura automática)</label>
+    <div id="toboganFields">
+      <label for="toboganColorMode">Color de los ductos del tobogán</label>
+      <select id="toboganColorMode">
+        <option value="mono">Un solo color</option>
+        <option value="bicolor">Bicolor (2 colores alternados)</option>
+        <option value="aleatorio">Aleatorio</option>
+      </select>
+      <div id="toboganColorMonoField"><label for="toboganColor">Color</label><select id="toboganColor"></select></div>
+      <div id="toboganColorBiField" class="grid3" style="display:none">
+        <div><label for="toboganColorA">Color 1</label><select id="toboganColorA"></select></div>
+        <div><label for="toboganColorB">Color 2</label><select id="toboganColorB"></select></div>
+      </div>
+    </div>
+    <div id="summary"></div>
+    <button id="create">Crear estructura automática</button>
+    <p class="note">Alto = altura TOTAL, de la base del conector 61 al cincho más alto -la torre va encima, aparte-. Ancho/largo se ajustan al módulo estándar, con medio módulo si acerca más a lo pedido. Para más control -colores, columna de la torre, alturas por piso- usa "Construcción de juegos (manual)".</p>
+  </main>
+  <script>
+    const $=id=>document.getElementById(id);
+    let defaults={default_spacing_m:1.1684,base_grid_height_mm:139.45,receiver_radius_mm:24.15,top_segment_to_last_cincho_top_mm:110.8};
+    window.loadDefaults=data=>{
+      defaults=data;
+      (data.standard_color_palette||[]).forEach(c=>{
+        ['toboganColor','toboganColorA','toboganColorB'].forEach(id=>{
+          const opt=document.createElement('option');opt.value=c.label;opt.textContent=c.label;$(id).appendChild(opt);
+        });
+      });
+      if($('toboganColorB').options.length>1) $('toboganColorB').selectedIndex=1;
+      update();
+    };
+    // Mismo criterio que fit_modules_and_half/fit_modules_z_and_spacing en
+    // main.rb -ver esos comentarios para el porqué del cuarto de módulo,
+    // de nunca redondear hacia arriba, y de la fórmula de altura total-.
+    // Solo para el resumen en vivo; Ruby recalcula esto con autoridad al
+    // crear.
+    function fitModulesAndHalf(targetMm,moduleMm){
+      const units=targetMm/moduleMm;
+      let whole=Math.floor(units);
+      const half=(units-whole)>=0.5;
+      if(whole===0&&!half) whole=1;
+      return [whole,half];
+    }
+    function fitModulesZAndSpacing(targetMm,moduleMm){
+      const neededAccumulatedMm=targetMm+defaults.top_segment_to_last_cincho_top_mm-defaults.base_grid_height_mm-defaults.receiver_radius_mm;
+      let nz=Math.floor(neededAccumulatedMm/moduleMm);
+      if(nz<1) nz=1;
+      const groundFloorMm=neededAccumulatedMm-((nz-1)*moduleMm);
+      return [nz,groundFloorMm];
+    }
+    function update(){
+      const moduleMm=defaults.default_spacing_m*1000;
+      const anchoMm=(+$('ancho').value||0)*1000, largoMm=(+$('largo').value||0)*1000, altoMm=(+$('alto').value||0)*1000;
+      const [mx,hx]=fitModulesAndHalf(anchoMm,moduleMm);
+      const [my,hy]=fitModulesAndHalf(largoMm,moduleMm);
+      const [mz,groundFloorMm]=fitModulesZAndSpacing(altoMm,moduleMm);
+      const realAncho=((mx+(hx?0.5:0))*defaults.default_spacing_m).toFixed(3);
+      const realLargo=((my+(hy?0.5:0))*defaults.default_spacing_m).toFixed(3);
+      const accumulatedMm=groundFloorMm+(mz-1)*moduleMm;
+      const realAltoTotal=((accumulatedMm+defaults.base_grid_height_mm+defaults.receiver_radius_mm-defaults.top_segment_to_last_cincho_top_mm)/1000).toFixed(3);
+      $('summary').innerHTML=`Se va a armar: <b>${mx}${hx?' + medio módulo':''}</b> × <b>${my}${hy?' + medio módulo':''}</b> × <b>${mz}</b> niveles -planta baja de ${(groundFloorMm/1000).toFixed(3)}m, resto a ${defaults.default_spacing_m}m-<br>Medida real: ${realAncho}m × ${realLargo}m de ancho/largo, ${realAltoTotal}m de alto TOTAL -base del 61 al cincho más alto, más la torre encima-.`;
+    }
+    ['ancho','largo','alto'].forEach(id=>$(id).addEventListener('input',update));
+    $('tobogan').addEventListener('change',()=>{$('toboganFields').classList.toggle('open',$('tobogan').checked)});
+    $('toboganColorMode').addEventListener('change',()=>{
+      const mode=$('toboganColorMode').value;
+      $('toboganColorMonoField').style.display=mode==='mono'?'block':'none';
+      $('toboganColorBiField').style.display=mode==='bicolor'?'grid':'none';
+    });
+    $('create').onclick=()=>{
+      const payload={ancho_m:+$('ancho').value,largo_m:+$('largo').value,alto_m:+$('alto').value,color:$('color').value,code:$('code').value,padding:$('padding').checked,solera:$('solera').checked,platform:$('platform').checked,net:$('net').checked,tobogan:$('tobogan').checked};
+      if(payload.tobogan){
+        payload.tobogan_color_mode=$('toboganColorMode').value;
+        payload.tobogan_color=$('toboganColor').value;
+        payload.tobogan_color_a=$('toboganColorA').value;
+        payload.tobogan_color_b=$('toboganColorB').value;
+      }
+      sketchup.createAutomatic(payload);
+    };
+    document.addEventListener('DOMContentLoaded',()=>{update();sketchup.ready();});
+  </script>
+</body>
+</html>

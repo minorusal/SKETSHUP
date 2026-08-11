@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Reporte de Inventario y Costos</title>
+  <style>
+    *{box-sizing:border-box} body{margin:0;background:#edf1f5;color:#17202a;font-family:Arial,sans-serif;height:100vh;display:flex;flex-direction:column}
+    header{padding:14px 20px;background:#173b68;color:white;flex:0 0 auto} h1{margin:0 0 3px;font-size:17px} header p{margin:0;opacity:.82;font-size:12px;word-break:break-all}
+    main{flex:1 1 auto;overflow:auto;padding:14px 20px}
+    h2{margin:0 0 8px;color:#173b68;font-size:14px}
+    #desconocidos{display:none;background:#fffbeb;border:1px solid #f3d98b;border-radius:8px;padding:12px 14px;margin-bottom:14px}
+    #desconocidos.open{display:block}
+    #desconocidos .sub{margin:0 0 10px;font-size:12px;color:#8a6d1a}
+    .fila-desc{padding:8px;border-radius:6px;background:white;border:1px solid #eadfb8;margin-bottom:6px}
+    .fila-desc.seleccionado{border-color:#173b68;box-shadow:0 0 0 2px #173b6833}
+    .fila-desc-top{display:flex;align-items:center;gap:8px}
+    .fila-desc .info{flex:1 1 auto;min-width:0}
+    .fila-desc .nombre{font-weight:bold;font-size:12.5px;color:#33404b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .fila-desc .detalle{font-size:11px;color:#7c8794}
+    .fila-desc button{flex:0 0 auto;padding:7px 10px;border:0;border-radius:6px;font-weight:bold;font-size:11.5px;cursor:pointer}
+    .btn-sel{background:#234f7d;color:white}
+    .btn-sel:hover{background:#173b68}
+    .btn-insp{background:#e56b18;color:white}
+    .btn-insp:hover{background:#c8580f}
+    .btn-regla{background:#2c7a3d;color:white}
+    .btn-regla:hover{background:#20612e}
+    .fila-desc .estado{font-size:10.5px;color:#2c7a3d;font-weight:bold;flex:0 0 auto;max-width:170px;text-align:right}
+    .form-regla{display:none;gap:6px;margin-top:8px;padding-top:8px;border-top:1px dashed #eadfb8;align-items:center}
+    .form-regla.open{display:flex}
+    .form-regla input{flex:1 1 auto;padding:6px 8px;border:1px solid #d7dee5;border-radius:5px;font-size:12px}
+    .form-regla input.precio{flex:0 0 90px}
+    .regla-status{font-size:11px;font-weight:bold;flex:0 0 auto}
+    .regla-status.error{color:#b91c1c}
+    .regla-status.ok{color:#2c7a3d}
+    pre{margin:0;background:#0f1720;color:#d7e2ee;padding:16px;border-radius:8px;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+    footer{flex:0 0 auto;padding:12px 20px;background:white;border-top:1px solid #d7dee5;display:flex;gap:10px}
+    button.footbtn{padding:10px 16px;border:0;border-radius:7px;background:#e56b18;color:white;font-weight:bold;cursor:pointer;font-size:13px}
+    button.footbtn:hover{background:#c8580f}
+    button.secondary{background:#455463}
+    button.secondary:hover{background:#33404b}
+    #copyStatus{align-self:center;font-size:12px;color:#2c7a3d;font-weight:bold}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Reporte de Inventario y Costos</h1>
+    <p id="rutaTxt"></p>
+  </header>
+  <main>
+    <section id="desconocidos">
+      <h2 id="descTitulo">⚠️ Piezas sin reconocer</h2>
+      <p class="sub">Selecciona una para verla en el modelo, inspecciónala a fondo si necesitas mandarle ese .txt a la IA, o ponle nombre y precio para agregar la regla tú mismo -queda guardada en el plugin, ya no hace falta reinstalar ni volver a preguntar.</p>
+      <div id="descLista"></div>
+    </section>
+    <pre id="reporte"></pre>
+  </main>
+  <footer>
+    <button class="footbtn" id="copiar">Copiar reporte al portapapeles</button>
+    <button class="footbtn secondary" id="cerrar">Cerrar</button>
+    <span id="copyStatus"></span>
+  </footer>
+  <script>
+    const $=id=>document.getElementById(id);
+
+    window.mostrarReporte=data=>{
+      $('reporte').textContent=data.texto;
+      $('rutaTxt').textContent=data.ruta?`Guardado en: ${data.ruta}`:'⚠️ No se pudo guardar el .txt junto al modelo -este reporte solo vive en esta ventana.';
+
+      const desconocidos=data.desconocidos||[];
+      if(desconocidos.length>0){
+        $('desconocidos').classList.add('open');
+        $('descTitulo').textContent=`⚠️ ${desconocidos.length} pieza(s) sin reconocer`;
+        $('descLista').innerHTML='';
+        desconocidos.forEach(d=>{
+          const row=document.createElement('div');
+          row.className='fila-desc';
+          row.id=`desc-${d.entity_id}`;
+          row.innerHTML=`
+            <div class="fila-desc-top">
+              <div class="info">
+                <div class="nombre">${d.nombre||'(sin nombre)'}</div>
+                <div class="detalle">${d.medidas} · ${d.caras} caras · tag: ${d.tag}</div>
+              </div>
+              <span class="estado" id="estado-${d.entity_id}"></span>
+              <button class="btn-sel">Seleccionar</button>
+              <button class="btn-insp">Inspeccionar a fondo</button>
+              <button class="btn-regla">+ Agregar regla</button>
+            </div>
+            <div class="form-regla" id="form-${d.entity_id}">
+              <input type="text" class="nombre-regla" placeholder="Nombre de la pieza (ej. Colchoneta_Tumbling_Especial)">
+              <input type="number" class="precio" placeholder="Precio" min="0" step="0.01">
+              <button class="btn-regla-guardar">Guardar</button>
+              <span class="regla-status" id="regla-status-${d.entity_id}"></span>
+            </div>
+          `;
+          row.querySelector('.btn-sel').onclick=()=>sketchup.seleccionar_desconocido(d.entity_id);
+          row.querySelector('.btn-insp').onclick=()=>{
+            $(`estado-${d.entity_id}`).textContent='⏳ Inspeccionando…';
+            sketchup.inspeccionar_desconocido(d.entity_id);
+          };
+          row.querySelector('.btn-regla').onclick=()=>$(`form-${d.entity_id}`).classList.toggle('open');
+          row.querySelector('.btn-regla-guardar').onclick=()=>{
+            const nombreRegla=row.querySelector('.nombre-regla').value.trim();
+            const precio=row.querySelector('.precio').value;
+            const status=$(`regla-status-${d.entity_id}`);
+            if(!nombreRegla){status.className='regla-status error';status.textContent='Escribe un nombre.';return}
+            if(!precio||Number(precio)<=0){status.className='regla-status error';status.textContent='Escribe un precio válido.';return}
+            status.className='regla-status';status.textContent='⏳ Guardando…';
+            sketchup.guardar_regla_desconocido({entity_id:d.entity_id,tag:nombreRegla,precio:Number(precio)});
+          };
+          $('descLista').appendChild(row);
+        });
+      }
+    };
+
+    window.marcarSeleccionado=entityId=>{
+      document.querySelectorAll('.fila-desc').forEach(f=>f.classList.remove('seleccionado'));
+      const row=$(`desc-${entityId}`);
+      if(row){
+        row.classList.add('seleccionado');
+        row.scrollIntoView({block:'center',behavior:'smooth'});
+      }
+    };
+
+    window.marcarInspeccionado=info=>{
+      const el=$(`estado-${info.entity_id}`);
+      if(el) el.textContent='✅ '+info.ruta.split('/').pop();
+      const row=$(`desc-${info.entity_id}`);
+      if(row){row.classList.add('seleccionado'); row.scrollIntoView({block:'center',behavior:'smooth'})}
+    };
+
+    window.marcarReglaGuardada=(entityId,resultado)=>{
+      const status=$(`regla-status-${entityId}`);
+      if(!status) return;
+      if(resultado.ok){
+        status.className='regla-status ok';
+        status.textContent=`✅ Regla "${resultado.tag}" guardada y activa -ya puedes correr el auto-etiquetado de nuevo.`;
+      } else {
+        status.className='regla-status error';
+        status.textContent='❌ '+resultado.error;
+      }
+    };
+
+    $('copiar').onclick=()=>{
+      const texto=$('reporte').textContent;
+      const onDone=()=>{$('copyStatus').textContent='✅ Copiado';setTimeout(()=>$('copyStatus').textContent='',2000)};
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(texto).then(onDone).catch(()=>{
+          const ta=document.createElement('textarea');ta.value=texto;document.body.appendChild(ta);ta.select();
+          try{document.execCommand('copy');onDone()}catch(e){} document.body.removeChild(ta);
+        });
+      } else {
+        const ta=document.createElement('textarea');ta.value=texto;document.body.appendChild(ta);ta.select();
+        try{document.execCommand('copy');onDone()}catch(e){} document.body.removeChild(ta);
+      }
+    };
+    $('cerrar').onclick=()=>sketchup.cerrar();
+    document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
+  </script>
+</body>
+</html>

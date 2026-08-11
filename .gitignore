@@ -1,0 +1,9 @@
+.DS_Store
+**/.DS_Store
+
+# Reportes locales de diagnóstico (pueden superar 1 GB)
+inspect_output/
+
+# Permisos locales de Claude Code
+.claude/settings.local.json
+

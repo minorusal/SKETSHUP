@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Constructor de Módulos</title>
+  <style>
+    *{box-sizing:border-box} html,body{height:100%} body{margin:0;background:#edf1f5;color:#17202a;font-family:Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+    header{flex:0 0 auto;padding:18px 22px;background:#173b68;color:white} h1{margin:0 0 5px;font-size:22px} header p{margin:0;opacity:.82;font-size:13px}
+    main{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:320px 1fr;gap:16px;padding:16px}.card{background:white;padding:17px;border-radius:10px;box-shadow:0 2px 9px #0002;min-height:0;overflow-y:auto}
+    h2{margin:0 0 12px;color:#173b68;font-size:17px}label{display:block;margin:10px 0 5px;font-size:12px;font-weight:bold;color:#455463}
+    input,select{width:100%;padding:9px;border:1px solid #aeb8c2;border-radius:6px;background:white}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .grid3 label{text-align:center}.check{display:flex;align-items:center;gap:8px;margin:13px 0}.check input{width:auto}
+    canvas{width:100%;height:350px;border:1px solid #d7dde3;border-radius:8px;background:#fff}
+    #summary{margin:10px 0;padding:11px;border-radius:7px;background:#eaf1f8;color:#234f7d;font-size:13px;line-height:1.5}
+    button{width:100%;padding:12px;border:0;border-radius:7px;background:#e56b18;color:white;font-weight:bold;cursor:pointer}button:hover{background:#c8580f}
+    .note{font-size:11px;color:#6c7882;margin-top:9px}@media(max-width:650px){main{grid-template-columns:1fr}}
+    #towerFields{display:none;margin:4px 0 8px 22px;padding:10px;border-left:3px solid #e56b18;background:#fbf3eb}
+    #towerFields.open{display:block}
+    #paddingFields{display:none;margin:4px 0 8px 22px;padding:10px;border-left:3px solid #2367bd;background:#eaf1f8}
+    #paddingFields.open{display:block}
+    #toboganFields{display:none;margin:4px 0 8px 22px;padding:10px;border-left:3px solid #26934f;background:#eafaf0}
+    #toboganFields.open{display:block}
+    #entradaFields{display:none;margin:4px 0 8px 22px;padding:10px;border-left:3px solid #b0264a;background:#fbeaf0}
+    #entradaFields.open{display:block}
+  </style>
+</head>
+<body>
+  <header><h1>Constructor de Módulos Play Idea</h1><p>Crea una cuadrícula tridimensional usando tubos y conectores existentes.</p></header>
+  <main>
+    <section class="card">
+      <h2>Cantidad de módulos</h2>
+      <div class="grid3">
+        <div><label for="mx">Ancho</label><input id="mx" type="number" min="1" max="20" value="1"></div>
+        <div><label for="my">Largo</label><input id="my" type="number" min="1" max="20" value="1"></div>
+        <div><label for="mz">Alto</label><input id="mz" type="number" min="1" max="20" value="1"></div>
+      </div>
+      <h2 style="margin-top:18px">Medida de cada módulo</h2>
+      <div class="grid3">
+        <div><label for="sx">Ancho (m)</label><input id="sx" type="number" min=".01" step=".0001"></div>
+        <div><label for="sy">Largo (m)</label><input id="sy" type="number" min=".01" step=".0001"></div>
+        <div id="szField"><label for="sz">Alto (m)</label><input id="sz" type="number" min=".01" step=".0001"></div>
+      </div>
+      <label class="check"><input id="variableHeights" type="checkbox">Alturas de módulo distintas por piso</label>
+      <div id="variableHeightsFields" style="display:none"></div>
+      <label class="check"><input id="halfModuleX" type="checkbox">Agregar medio módulo a lo ancho (X)</label>
+      <label class="check"><input id="halfModuleY" type="checkbox">Agregar medio módulo a lo largo (Y)</label>
+      <p class="note">Cada uno agrega UNA fila/columna entera más, a la mitad del ancho de módulo normal, al final de ese eje -no se cuenta dentro de "Ancho"/"Largo" de arriba-. Se pueden activar los dos juntos. Si agregas también una torre, no se puede colocar sobre esas columnas/filas angostas -se marcan en gris en la vista de arriba y no se pueden elegir ahí-.</p>
+      <label for="color">Color de los tubos</label>
+      <select id="color"><option>Azul</option><option>Rojo</option><option>Amarillo</option><option>Verde</option><option>Naranja</option><option>Gris</option><option>Negro</option></select>
+      <label for="code">Código de la estructura</label><input id="code" value="MOD-1X1X1">
+      <label class="check"><input id="connectors" type="checkbox" checked>Agregar conectores automáticamente</label>
+      <label class="check"><input id="padding" type="checkbox">Recubrir con espuma (polyfoam Ø8.5cm), con cinchos cada 15cm</label>
+      <div id="paddingFields">
+        <label for="paddingColorMode">Color del recubrimiento</label>
+        <select id="paddingColorMode">
+          <option value="aleatorio">Aleatorio (mezcla los colores del catálogo)</option>
+          <option value="vertical_horizontal">Un color para postes verticales, otro para horizontales</option>
+        </select>
+        <div id="paddingColorFields" class="grid3" style="display:none">
+          <div><label for="paddingColorVertical">Verticales</label><select id="paddingColorVertical"></select></div>
+          <div><label for="paddingColorHorizontal">Horizontales</label><select id="paddingColorHorizontal"></select></div>
+        </div>
+        <p class="note">Cubre la estructura Y la torre -si agregas una-, con tramos de máximo 2.4m y cinchos de plástico cada 15cm, del mismo color que su tramo.</p>
+      </div>
+      <label class="check"><input id="tower" type="checkbox">Agregar torre de pisos triangulares</label>
+      <div id="towerFields">
+        <label for="towerCorner">Ángulo recto en la esquina (misma dirección en todos los escalones)</label>
+        <select id="towerCorner">
+          <option value="sw">Suroeste</option>
+          <option value="se">Sureste</option>
+          <option value="ne">Noreste</option>
+          <option value="nw">Noroeste</option>
+        </select>
+        <div id="towerCellInfo" class="note" style="margin-top:8px"></div>
+        <p class="note">La vista previa (derecha) cambia a vista de arriba mientras eliges torre: haz clic en la columna donde la quieres -queda marcada en naranja, con un triángulo mostrando la dirección elegida-. Sube como una escalera de planta baja a la última planta: pasa por cada nivel real intermedio -si un módulo tiene varios pisos- pero se detiene en la base del último módulo, sin escalones dentro de él. Si un escalón cae justo en un nivel real de la cuadrícula, ese escalón omite el ángulo recto -ya hay conectores ahí- y deja solo el tubo diagonal. Los escalones y su separación (entre 50 y 60cm) se calculan solos según la altura de cada módulo. Mismo color que la estructura.</p>
+      </div>
+      <label class="check"><input id="solera" type="checkbox" checked>Agregar soleras de fijación (placa de 1")</label>
+      <p class="note">2 placas por cuadro -esquinas opuestas- en todos los niveles menos el último, más 3 por cada escalón de la torre -si agregaste una-. Fijan con 2 autorroscantes y sostienen la plataforma que se instalará después con una pija al centro.</p>
+      <label class="check"><input id="platform" type="checkbox">Agregar plataformas (piso)</label>
+      <p class="note">1 plataforma de 1.22 x 1.22m por cuadro de módulo COMPLETO -no en columnas/filas de medio módulo, más angostas de lo que la plataforma necesita-, en todos los niveles menos el último. Solo aplica si el módulo mide 1.1684m -el tamaño único de plataforma disponible por ahora-.</p>
+      <label class="check"><input id="net" type="checkbox">Agregar malla de seguridad</label>
+      <p class="note">Un paño de malla -con marco de redondo pulido en el perímetro- por cada cara vertical, en las 2 orientaciones, en TODOS los niveles -incluido el último-, de cualquier tamaño de cuadro -módulo completo o medio módulo, se corta a la medida-. También cubre el techo -paños horizontales sobre el nivel de arriba-. Se coloca en toda la cuadrícula; quita a mano los paños donde no haga falta.</p>
+      <div id="entradaFields">
+        <label class="check"><input id="entrada" type="checkbox">Definir entrada de la estructura (sin malla ahí)</label>
+        <div id="entradaCellInfo" class="note" style="margin-top:8px"></div>
+        <p class="note">Siempre en la planta baja -nivel 0-. Haz clic en una celda de la ORILLA de la vista previa para elegir por dónde entra la gente; se omite ese único paño de malla.</p>
+      </div>
+      <label class="check"><input id="tobogan" type="checkbox">Agregar tobogán (altura automática, hasta el piso)</label>
+      <div id="toboganFields">
+        <div id="pickModeField" style="display:none">
+          <label for="pickMode">El clic en la vista previa elige</label>
+          <select id="pickMode"><option value="tobogan">Celda del tobogán</option><option value="tower">Columna de la torre</option><option value="entrada">Celda de la entrada</option></select>
+        </div>
+        <div id="toboganCellInfo" class="note" style="margin-top:8px"></div>
+        <p class="note">Haz clic en una celda de la ORILLA de la vista previa -arriba, derecha- para elegir por dónde arranca. La altura la resuelve solo, de la base del 61 hasta el piso junto a la estructura.</p>
+        <label for="toboganColorMode">Color de los ductos del tobogán</label>
+        <select id="toboganColorMode">
+          <option value="mono">Un solo color</option>
+          <option value="bicolor">Bicolor (2 colores alternados)</option>
+          <option value="aleatorio">Aleatorio</option>
+        </select>
+        <div id="toboganColorMonoField"><label for="toboganColor">Color</label><select id="toboganColor"></select></div>
+        <div id="toboganColorBiField" class="grid3" style="display:none">
+          <div><label for="toboganColorA">Color 1</label><select id="toboganColorA"></select></div>
+          <div><label for="toboganColorB">Color 2</label><select id="toboganColorB"></select></div>
+        </div>
+      </div>
+      <button id="create">Crear estructura</button>
+      <p class="note">Los ejes de los conectores se normalizan y cada columna usa un poste continuo desde la placa 61 hasta el último nivel. El recubrimiento cubre cada fila/columna/poste de punta a punta, sin insertarse en los nodos.</p>
+    </section>
+    <section class="card">
+      <h2>Vista previa de la cuadrícula</h2>
+      <canvas id="preview" width="470" height="350"></canvas>
+      <div id="summary"></div>
+    </section>
+  </main>
+  <script>
+    const $=id=>document.getElementById(id);
+    let defaults={};
+    let selectedTowerCell=null;
+    // Celda elegida para el tobogán -{i,j,edge}-, edge en 'x_near'/'x_far'/
+    // 'y_near'/'y_far', mismo significado que params[:tobogan_edge] en
+    // main.rb. null hasta que el usuario hace clic en una celda válida de
+    // la orilla.
+    let selectedToboganCell=null;
+    // Celda elegida para la entrada de la estructura -mismo formato
+    // {i,j,edge}-, independiente del tobogán -la estructura puede tener
+    // entrada sin tobogán, o los dos a la vez en orillas distintas-.
+    // SIEMPRE nivel 0 -no hay "índice de nivel" que elegir-.
+    let selectedEntradaCell=null;
+    // Alturas de módulo: uniforme (sz, de siempre) o variable -un valor
+    // por módulo de alto, checkbox "Alturas de módulo distintas"-. szList
+    // solo existe cuando el checkbox está activo; el resto del código usa
+    // szMm(v) para obtener siempre un Array de mm, sin importar el modo.
+    function values(){
+      const base={mx:+$('mx').value,my:+$('my').value,mz:+$('mz').value,sx:+$('sx').value,sy:+$('sy').value,sz:+$('sz').value};
+      if($('variableHeights').checked){
+        base.szList=Array.from(document.querySelectorAll('#variableHeightsFields input')).map(el=>+el.value);
+      }
+      return base;
+    }
+    function szMm(v){
+      return v.szList ? v.szList.map(m=>m*1000) : Array.from({length:v.mz},()=>v.sz*1000);
+    }
+    function renderVariableHeightFields(){
+      const mz=+$('mz').value;
+      const container=$('variableHeightsFields');
+      const existing=Array.from(container.querySelectorAll('input')).map(el=>+el.value);
+      container.innerHTML='';
+      for(let k=0;k<mz;k++){
+        const wrap=document.createElement('div');
+        const label=document.createElement('label');
+        label.textContent=`Módulo ${k+1}, de abajo hacia arriba (m)`;
+        const input=document.createElement('input');
+        input.type='number';input.min='.01';input.step='.0001';
+        input.value=existing[k]!==undefined?existing[k]:(+$('sz').value||defaults.default_spacing_m||1.1684);
+        input.addEventListener('input',draw);
+        wrap.appendChild(label);wrap.appendChild(input);
+        container.appendChild(wrap);
+      }
+    }
+    function project(x,y,z){return[70+x*52-y*30,285-x*17-y*17-z*55]}
+
+    // Posiciones acumuladas (en unidades de módulo, 1=módulo normal) a lo
+    // largo de un eje con `count` módulos normales y, si `hasHalf`, UNA
+    // columna/fila extra al final a la mitad de ancho -mismo patrón que
+    // axis_cumulative_mm en main.rb, pero en unidades de módulo, no mm,
+    // para dibujar la vista previa-. Longitud = count+1 -o count+2 si
+    // hasHalf, un nodo más para la columna extra-.
+    function axisPositions(count,hasHalf){
+      const totalCols=hasHalf?count+1:count;
+      const pos=[0];
+      for(let col=0;col<totalCols;col++){
+        const isLast=hasHalf&&col===totalCols-1;
+        pos.push(pos[pos.length-1]+(isLast?0.5:1));
+      }
+      return pos;
+    }
+    function halfFlags(){
+      return {x:$('halfModuleX').checked,y:$('halfModuleY').checked};
+    }
+
+    // Vista de arriba (planta) para elegir la columna de la torre: la
+    // isométrica distorsiona la cuadrícula y no deja ver bien en qué
+    // cuadrante real se está haciendo clic. Se usa SOLO mientras el
+    // checkbox de torre está activo -el resto del tiempo se conserva la
+    // vista isométrica original-. Mismo orden de esquinas que
+    // TRIANGLE_CORNER_ORDER en main.rb, para que el triángulo dibujado
+    // aquí coincida exactamente con la geometría real que arma Ruby.
+    const CANVAS_W=470, CANVAS_H=350, TOP_MARGIN=36;
+    const CORNER_ORDER=['sw','nw','ne','se'];
+    // `xs`/`ys` son posiciones acumuladas -en unidades de módulo, ver
+    // axisPositions- para poder dibujar/elegir celdas aunque la última
+    // columna/fila de un eje sea un medio módulo -ancho no uniforme-.
+    function topLayout(v){
+      const half=halfFlags();
+      const xs=axisPositions(v.mx,half.x), ys=axisPositions(v.my,half.y);
+      const totalW=xs[xs.length-1], totalH=ys[ys.length-1];
+      const availW=CANVAS_W-2*TOP_MARGIN, availH=CANVAS_H-2*TOP_MARGIN;
+      const cell=Math.max(4,Math.min(availW/totalW,availH/totalH));
+      const gridW=cell*totalW, gridH=cell*totalH;
+      return {cell,offX:(CANVAS_W-gridW)/2,offY:(CANVAS_H-gridH)/2,xs,ys,totalW,totalH,halfX:half.x,halfY:half.y,nx:xs.length-1,ny:ys.length-1};
+    }
+    // (i,j) es la esquina SO de esa celda de cuadrícula; j crece hacia el
+    // norte pero la pantalla crece hacia abajo, de ahí (totalH-ys[j]).
+    function projectTop(i,j,v,layout){
+      return [layout.offX+layout.xs[i]*layout.cell, layout.offY+(layout.totalH-layout.ys[j])*layout.cell];
+    }
+    function pickCellTop(px,py,v,layout){
+      const rx=(px-layout.offX)/layout.cell, ry=layout.totalH-(py-layout.offY)/layout.cell;
+      let i=-1; for(let col=0;col<layout.nx;col++){if(rx>=layout.xs[col]&&rx<layout.xs[col+1]){i=col;break;}}
+      let j=-1; for(let row=0;row<layout.ny;row++){if(ry>=layout.ys[row]&&ry<layout.ys[row+1]){j=row;break;}}
+      return [i,j];
+    }
+    // La columna/fila de medio módulo -si hay una- es SIEMPRE la última
+    // del eje que le corresponde -mismo criterio que tower_params_from_
+    // dialog en main.rb, que la rechaza igual del lado Ruby-.
+    function isHalfCell(i,j,layout){
+      if(layout.halfX&&i===layout.nx-1) return true;
+      if(layout.halfY&&j===layout.ny-1) return true;
+      return false;
+    }
+    // A qué orilla real pertenece una celda -para el tobogán, que arranca
+    // desde una orilla, no de cualquier celda interior como la torre-.
+    // Solo celdas de orilla, NO de esquina -una esquina toca 2 orillas a
+    // la vez, ambigüedad que se evita simplemente no dejando elegirlas-.
+    // Mismos 4 valores que params[:tobogan_edge] en main.rb.
+    function edgeForCell(i,j,layout){
+      const onXFar=i===layout.nx-1, onXNear=i===0, onYFar=j===layout.ny-1, onYNear=j===0;
+      const count=[onXFar,onXNear,onYFar,onYNear].filter(Boolean).length;
+      if(count!==1) return null;
+      if(onXFar) return 'x_far';
+      if(onXNear) return 'x_near';
+      if(onYFar) return 'y_far';
+      return 'y_near';
+    }
+    function cellCornersTop(i,j,v,layout){
+      return {
+        sw:projectTop(i,j,v,layout), se:projectTop(i+1,j,v,layout),
+        ne:projectTop(i+1,j+1,v,layout), nw:projectTop(i,j+1,v,layout)
+      };
+    }
+    // Triángulo [ángulo recto, vecino siguiente, vecino anterior] en
+    // CORNER_ORDER -misma regla que diagonal_near_far_corners en main.rb-.
+    function directionTriangle(corners,rightAngleCorner){
+      const idx=CORNER_ORDER.indexOf(rightAngleCorner);
+      const near=CORNER_ORDER[(idx+1)%4], far=CORNER_ORDER[(idx+3)%4];
+      return [corners[rightAngleCorner],corners[near],corners[far]];
+    }
+    function drawIsoView(v,c){
+      const half=halfFlags();
+      const xs=axisPositions(v.mx,half.x), ys=axisPositions(v.my,half.y);
+      const nx=xs.length-1, ny=ys.length-1;
+      const line=(a,b,color)=>{c.strokeStyle=color;c.beginPath();c.moveTo(...a);c.lineTo(...b);c.stroke()};
+      for(let k=0;k<=v.mz;k++)for(let j=0;j<=ny;j++)for(let i=0;i<nx;i++)line(project(xs[i],ys[j],k),project(xs[i+1],ys[j],k),'#d33');
+      for(let k=0;k<=v.mz;k++)for(let j=0;j<ny;j++)for(let i=0;i<=nx;i++)line(project(xs[i],ys[j],k),project(xs[i],ys[j+1],k),'#26934f');
+      for(let k=0;k<v.mz;k++)for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++)line(project(xs[i],ys[j],k),project(xs[i],ys[j],k+1),'#2367bd');
+    }
+    // Vista de arriba usada mientras se elige la columna de la torre: cada
+    // celda de la cuadrícula X-Y, centrada en el canvas -sin distorsión
+    // isométrica, para poder ver claramente en qué cuadrante se hace
+    // clic-. La celda elegida se resalta en naranja y, encima, un
+    // triángulo azul muestra la dirección elegida en el selector.
+    function drawTopView(v,c){
+      const layout=topLayout(v);
+      c.lineWidth=1.5;c.strokeStyle='#aeb8c2';
+      for(let i=0;i<=layout.nx;i++){const a=projectTop(i,0,v,layout),b=projectTop(i,layout.ny,v,layout);c.beginPath();c.moveTo(...a);c.lineTo(...b);c.stroke();}
+      for(let j=0;j<=layout.ny;j++){const a=projectTop(0,j,v,layout),b=projectTop(layout.nx,j,v,layout);c.beginPath();c.moveTo(...a);c.lineTo(...b);c.stroke();}
+      c.fillStyle='#8a97a3';c.font='11px Arial';c.textAlign='center';
+      c.fillText('N (Y+)',layout.offX+layout.totalW*layout.cell/2,layout.offY-14);
+      // Sombrea la columna/fila de medio módulo -no elegible para torre,
+      // ver isHalfCell/tower_params_from_dialog-. Los dos ejes son
+      // independientes -si ambos están activos, la celda de la esquina
+      // queda sombreada por los dos-.
+      const shadeStrip=(corners,rotate)=>{
+        c.fillStyle='rgba(23,32,42,0.14)';
+        c.beginPath();c.moveTo(...corners.sw);c.lineTo(...corners.se);c.lineTo(...corners.ne);c.lineTo(...corners.nw);c.closePath();c.fill();
+        c.fillStyle='#455463';c.font='10px Arial';c.textAlign='center';
+        const midPx=[(corners.sw[0]+corners.ne[0])/2,(corners.sw[1]+corners.ne[1])/2];
+        c.save();c.translate(...midPx);if(rotate)c.rotate(-Math.PI/2);
+        c.fillText('medio módulo -sin torre-',0,0);c.restore();
+      };
+      if(layout.halfX){
+        shadeStrip({sw:projectTop(layout.nx-1,0,v,layout),se:projectTop(layout.nx,0,v,layout),ne:projectTop(layout.nx,layout.ny,v,layout),nw:projectTop(layout.nx-1,layout.ny,v,layout)},true);
+      }
+      if(layout.halfY){
+        shadeStrip({sw:projectTop(0,layout.ny-1,v,layout),se:projectTop(layout.nx,layout.ny-1,v,layout),ne:projectTop(layout.nx,layout.ny,v,layout),nw:projectTop(0,layout.ny,v,layout)},false);
+      }
+      if(selectedTowerCell&&selectedTowerCell[0]>=0&&selectedTowerCell[0]<layout.nx&&selectedTowerCell[1]>=0&&selectedTowerCell[1]<layout.ny&&!isHalfCell(selectedTowerCell[0],selectedTowerCell[1],layout)){
+        const [i,j]=selectedTowerCell;
+        const corners=cellCornersTop(i,j,v,layout);
+        c.fillStyle='rgba(229,107,24,0.30)';
+        c.beginPath();c.moveTo(...corners.sw);c.lineTo(...corners.se);c.lineTo(...corners.ne);c.lineTo(...corners.nw);c.closePath();c.fill();
+        const tri=directionTriangle(corners,$('towerCorner').value);
+        c.fillStyle='rgba(35,103,189,0.55)';c.strokeStyle='#173b68';c.lineWidth=2;
+        c.beginPath();c.moveTo(...tri[0]);c.lineTo(...tri[1]);c.lineTo(...tri[2]);c.closePath();c.fill();c.stroke();
+      }
+      if(selectedToboganCell){
+        const {i,j,edge}=selectedToboganCell;
+        if(i>=0&&i<layout.nx&&j>=0&&j<layout.ny){
+          const corners=cellCornersTop(i,j,v,layout);
+          c.fillStyle='rgba(38,147,79,0.30)';
+          c.beginPath();c.moveTo(...corners.sw);c.lineTo(...corners.se);c.lineTo(...corners.ne);c.lineTo(...corners.nw);c.closePath();c.fill();
+          // Flecha hacia afuera de la orilla elegida, desde el punto medio
+          // del lado de esa celda que toca la orilla real.
+          const mids={x_far:[corners.se,corners.ne],x_near:[corners.nw,corners.sw],y_far:[corners.ne,corners.nw],y_near:[corners.sw,corners.se]};
+          const [a,b]=mids[edge];
+          const midX=(a[0]+b[0])/2, midY=(a[1]+b[1])/2;
+          const out={x_far:[1,0],x_near:[-1,0],y_far:[0,-1],y_near:[0,1]}[edge];
+          const tipX=midX+out[0]*26, tipY=midY+out[1]*26;
+          c.strokeStyle='#173b68';c.fillStyle='#173b68';c.lineWidth=2.5;
+          c.beginPath();c.moveTo(midX,midY);c.lineTo(tipX,tipY);c.stroke();
+          c.beginPath();c.moveTo(tipX,tipY);c.lineTo(tipX-out[0]*8-out[1]*5,tipY-out[1]*8-out[0]*5);c.lineTo(tipX-out[0]*8+out[1]*5,tipY-out[1]*8+out[0]*5);c.closePath();c.fill();
+        }
+      }
+      if(selectedEntradaCell){
+        const {i,j,edge}=selectedEntradaCell;
+        if(i>=0&&i<layout.nx&&j>=0&&j<layout.ny){
+          const corners=cellCornersTop(i,j,v,layout);
+          c.fillStyle='rgba(176,38,74,0.30)';
+          c.beginPath();c.moveTo(...corners.sw);c.lineTo(...corners.se);c.lineTo(...corners.ne);c.lineTo(...corners.nw);c.closePath();c.fill();
+          const mids={x_far:[corners.se,corners.ne],x_near:[corners.nw,corners.sw],y_far:[corners.ne,corners.nw],y_near:[corners.sw,corners.se]};
+          const [a,b]=mids[edge];
+          const midX=(a[0]+b[0])/2, midY=(a[1]+b[1])/2;
+          const out={x_far:[1,0],x_near:[-1,0],y_far:[0,-1],y_near:[0,1]}[edge];
+          const tipX=midX+out[0]*26, tipY=midY+out[1]*26;
+          c.strokeStyle='#7a1233';c.fillStyle='#7a1233';c.lineWidth=2.5;
+          c.beginPath();c.moveTo(midX,midY);c.lineTo(tipX,tipY);c.stroke();
+          c.beginPath();c.moveTo(tipX,tipY);c.lineTo(tipX-out[0]*8-out[1]*5,tipY-out[1]*8-out[0]*5);c.lineTo(tipX-out[0]*8+out[1]*5,tipY-out[1]*8+out[0]*5);c.closePath();c.fill();
+        }
+      }
+    }
+    function draw(){
+      const v=values(),c=$('preview').getContext('2d');c.clearRect(0,0,CANVAS_W,CANVAS_H);c.lineWidth=3;c.textAlign='start';
+      if($('tower').checked||$('tobogan').checked||$('entrada').checked) drawTopView(v,c); else drawIsoView(v,c);
+      const tx=v.mx*(v.my+1)*(v.mz+1),ty=(v.mx+1)*v.my*(v.mz+1),tz=(v.mx+1)*(v.my+1),n=(v.mx+1)*(v.my+1)*(v.mz+1),bases=(v.mx+1)*(v.my+1);
+      const half=halfFlags();
+      const halfAxesTxt=[half.x?'X (ancho)':null,half.y?'Y (largo)':null].filter(Boolean).join(' y ');
+      const halfNote=halfAxesTxt?`<br><b>+ medio módulo</b> a la mitad de ancho, al final del eje ${halfAxesTxt} -no incluido en los conteos de abajo, calculados por Ruby al crear-`:'';
+      $('summary').innerHTML=`Estructura <b>${v.mx} × ${v.my} × ${v.mz}</b><br>Tubos: ${tx+ty+tz} (${tx} ancho, ${ty} largo, ${tz} postes continuos)<br>Placas 61: ${bases}<br>Conectores de parrilla: ${n}<br>Total de conectores: ${bases+n}${halfNote}`;
+      $('code').value=`MOD-${v.mx}X${v.my}X${v.mz}`;
+      updateTowerInfo(v);
+      updateToboganInfo();
+      updateEntradaInfo();
+    }
+    // Niveles reales de la cuadrícula -mm-, k=0 a mz: misma fórmula que
+    // grid_level_z en main.rb, con altura acumulada -uniforme o variable
+    // según szMm(v)-. Ruby recalcula esto con autoridad al crear la torre;
+    // aquí solo es para el resumen en vivo del diálogo.
+    function gridLevelsMm(v){
+      const heights=szMm(v);
+      const levels=[defaults.bottom_grid_height_mm];
+      let acumulado=0;
+      for(let k=0;k<v.mz;k++){
+        acumulado+=heights[k];
+        let z=defaults.base_grid_height_mm+acumulado;
+        if(k===v.mz-1) z+=defaults.receiver_radius_mm;
+        levels.push(z);
+      }
+      return levels;
+    }
+    function updateTowerInfo(v){
+      if(!$('tower').checked) return;
+      if(!selectedTowerCell||selectedTowerCell[0]>=v.mx||selectedTowerCell[1]>=v.my){
+        $('towerCellInfo').textContent='Todavía no elegiste columna: haz clic en una celda de la vista previa.';
+        return;
+      }
+      const [i,j]=selectedTowerCell;
+      const levels=gridLevelsMm(v);
+      const bottomZ=defaults.tower_first_step_height_mm;
+      if(v.mz<=1){
+        // Sin "siguiente piso" al que subir: patrón fijo ya validado, 2
+        // escalones a tower_first_step_height_mm de separación -igual que
+        // Ruby con nz<=1, ver auto_tower_step_heights-.
+        $('towerCellInfo').textContent=`Columna (${i},${j}) elegida: 2 escalones, separados ${defaults.tower_first_step_height_mm.toFixed(0)}mm, empezando en ${(bottomZ/1000).toFixed(2)}m -un solo módulo, sin nivel superior al que subir-.`;
+        return;
+      }
+      // Con más de 1 módulo, la torre sube como escalera de planta baja a
+      // la ÚLTIMA planta -se detiene en el penúltimo nivel real, sin
+      // seguir escalones dentro del último módulo, ver la nota junto al
+      // checkbox de torre-. El conteo/separación exactos de cada tramo los
+      // calcula Ruby (auto_tower_step_heights); aquí solo se listan los
+      // niveles reales por los que pasa.
+      const nivelesTorre=levels.slice(1,levels.length-1).map(z=>(z/1000).toFixed(2)+'m');
+      $('towerCellInfo').textContent=`Columna (${i},${j}) elegida: sube desde ${(bottomZ/1000).toFixed(2)}m, pasando por ${nivelesTorre.join(', ')}, y se detiene ahí -base del último módulo-. Escalones exactos calculados por Ruby al crear.`;
+    }
+    const EDGE_LABELS={x_far:'orilla +X (ancho, lado lejano)',x_near:'orilla -X (ancho, lado cercano)',y_far:'orilla +Y (largo, lado lejano)',y_near:'orilla -Y (largo, lado cercano)'};
+    function updateToboganInfo(){
+      if(!$('tobogan').checked) return;
+      if(!selectedToboganCell){
+        $('toboganCellInfo').textContent='Todavía no elegiste por dónde arranca: haz clic en una celda de la orilla de la vista previa.';
+        return;
+      }
+      const {i,j,edge}=selectedToboganCell;
+      $('toboganCellInfo').textContent=`Elegido: ${EDGE_LABELS[edge]}, celda (${i},${j}).`;
+    }
+    function updateEntradaInfo(){
+      if(!$('net').checked||!$('entrada').checked) return;
+      if(!selectedEntradaCell){
+        $('entradaCellInfo').textContent='Todavía no elegiste por dónde entra: haz clic en una celda de la orilla de la vista previa.';
+        return;
+      }
+      const {i,j,edge}=selectedEntradaCell;
+      $('entradaCellInfo').textContent=`Elegido: ${EDGE_LABELS[edge]}, celda (${i},${j}), planta baja.`;
+    }
+    window.loadDefaults=data=>{
+      defaults=data;
+      $('sx').value=$('sy').value=$('sz').value=data.default_spacing_m;
+      // Catálogo estándar -mismos 8 hex que colorear_tubos_playidea-, para
+      // los selects de color del recubrimiento -no la lista corta de
+      // "Color de los tubos", que es el sistema de color viejo/aproximado-.
+      (data.standard_color_palette || []).forEach(c=>{
+        const optV=document.createElement('option'); optV.value=c.label; optV.textContent=c.label;
+        $('paddingColorVertical').appendChild(optV);
+        const optH=document.createElement('option'); optH.value=c.label; optH.textContent=c.label;
+        $('paddingColorHorizontal').appendChild(optH);
+        ['toboganColor','toboganColorA','toboganColorB'].forEach(id=>{
+          const opt=document.createElement('option'); opt.value=c.label; opt.textContent=c.label;
+          $(id).appendChild(opt);
+        });
+      });
+      if($('paddingColorHorizontal').options.length>1) $('paddingColorHorizontal').selectedIndex=1;
+      if($('toboganColorB').options.length>1) $('toboganColorB').selectedIndex=1;
+      draw();
+    };
+    ['mx','my','mz','sx','sy','sz'].forEach(id=>$(id).addEventListener('input',()=>{
+      if($('variableHeights').checked && id==='mz') renderVariableHeightFields();
+      draw();
+    }));
+    $('variableHeights').addEventListener('change',()=>{
+      const on=$('variableHeights').checked;
+      $('variableHeightsFields').style.display=on?'block':'none';
+      $('szField').style.display=on?'none':'block';
+      if(on) renderVariableHeightFields();
+      draw();
+    });
+    $('tower').addEventListener('change',()=>{$('towerFields').classList.toggle('open',$('tower').checked);updatePickModeVisibility();if($('tower').checked)$('pickMode').value='tower';draw()});
+    $('halfModuleX').addEventListener('change',draw);
+    $('halfModuleY').addEventListener('change',draw);
+    $('padding').addEventListener('change',()=>{$('paddingFields').classList.toggle('open',$('padding').checked)});
+    $('paddingColorMode').addEventListener('change',()=>{
+      $('paddingColorFields').style.display=$('paddingColorMode').value==='vertical_horizontal'?'grid':'none';
+    });
+    $('towerCorner').addEventListener('change',draw);
+    $('net').addEventListener('change',()=>{
+      $('entradaFields').classList.toggle('open',$('net').checked);
+      if(!$('net').checked){$('entrada').checked=false;selectedEntradaCell=null;}
+      updatePickModeVisibility();draw();
+    });
+    $('entrada').addEventListener('change',()=>{updatePickModeVisibility();if($('entrada').checked)$('pickMode').value='entrada';draw()});
+    $('tobogan').addEventListener('change',()=>{$('toboganFields').classList.toggle('open',$('tobogan').checked);updatePickModeVisibility();if($('tobogan').checked)$('pickMode').value='tobogan';draw()});
+    $('toboganColorMode').addEventListener('change',()=>{
+      const mode=$('toboganColorMode').value;
+      $('toboganColorMonoField').style.display=mode==='mono'?'block':'none';
+      $('toboganColorBiField').style.display=mode==='bicolor'?'grid':'none';
+    });
+    // El clic en la vista previa mueve UNA sola selección a la vez -torre,
+    // tobogán O entrada-: si solo uno de esos checkboxes está activo, el
+    // clic es para ese; si hay 2 o más a la vez, `pickMode` decide cuál
+    // -aparece solo en ese caso, ver updatePickModeVisibility-, y se
+    // limita a mostrar solo las opciones realmente activas.
+    function activePickTargets(){
+      const targets=[];
+      if($('tower').checked) targets.push('tower');
+      if($('tobogan').checked) targets.push('tobogan');
+      if($('net').checked&&$('entrada').checked) targets.push('entrada');
+      return targets;
+    }
+    function updatePickModeVisibility(){
+      const targets=activePickTargets();
+      $('pickModeField').style.display=targets.length>1?'block':'none';
+      Array.from($('pickMode').options).forEach(opt=>{opt.hidden=!targets.includes(opt.value)});
+      if(targets.length>1&&!targets.includes($('pickMode').value)) $('pickMode').value=targets[0];
+    }
+    function activePickTarget(){
+      const targets=activePickTargets();
+      if(targets.length>1) return $('pickMode').value;
+      return targets[0]||null;
+    }
+    $('preview').addEventListener('click',evt=>{
+      const target=activePickTarget();
+      if(!target) return;
+      const rect=$('preview').getBoundingClientRect();
+      const px=(evt.clientX-rect.left)*($('preview').width/rect.width);
+      const py=(evt.clientY-rect.top)*($('preview').height/rect.height);
+      const v=values();
+      const layout=topLayout(v);
+      const [i,j]=pickCellTop(px,py,v,layout);
+      if(target==='tower'){
+        const valid=i>=0&&i<layout.nx&&j>=0&&j<layout.ny&&!isHalfCell(i,j,layout);
+        selectedTowerCell=valid?[i,j]:null;
+      }else if(target==='tobogan'){
+        const edge=(i>=0&&i<layout.nx&&j>=0&&j<layout.ny)?edgeForCell(i,j,layout):null;
+        selectedToboganCell=edge?{i,j,edge}:null;
+      }else{
+        const edge=(i>=0&&i<layout.nx&&j>=0&&j<layout.ny)?edgeForCell(i,j,layout):null;
+        selectedEntradaCell=edge?{i,j,edge}:null;
+      }
+      draw();
+    });
+    $('create').onclick=()=>{
+      const v=values();
+      const spacingZM=v.szList||v.sz;
+      const payload={modules_x:v.mx,modules_y:v.my,modules_z:v.mz,spacing_x_m:v.sx,spacing_y_m:v.sy,spacing_z_m:spacingZM,color:$('color').value,code:$('code').value,connectors:$('connectors').checked,padding:$('padding').checked,tower:$('tower').checked,solera:$('solera').checked,platform:$('platform').checked,net:$('net').checked,tobogan:$('tobogan').checked,half_module_x:$('halfModuleX').checked,half_module_y:$('halfModuleY').checked};
+      if(payload.padding){
+        payload.padding_color_mode=$('paddingColorMode').value;
+        payload.padding_color_vertical=$('paddingColorVertical').value;
+        payload.padding_color_horizontal=$('paddingColorHorizontal').value;
+      }
+      if(payload.tower){
+        if(!selectedTowerCell||selectedTowerCell[0]>=v.mx||selectedTowerCell[1]>=v.my){
+          alert('Primero haz clic en una columna de la vista previa para la torre.');
+          return;
+        }
+        payload.tower_cell_i=selectedTowerCell[0];
+        payload.tower_cell_j=selectedTowerCell[1];
+        payload.tower_corner=$('towerCorner').value;
+      }
+      if(payload.tobogan){
+        if(!selectedToboganCell){
+          alert('Primero haz clic en una celda de la orilla de la vista previa para el tobogán.');
+          return;
+        }
+        payload.tobogan_edge=selectedToboganCell.edge;
+        payload.tobogan_index=(selectedToboganCell.edge==='x_near'||selectedToboganCell.edge==='x_far')?selectedToboganCell.j:selectedToboganCell.i;
+        payload.tobogan_color_mode=$('toboganColorMode').value;
+        payload.tobogan_color=$('toboganColor').value;
+        payload.tobogan_color_a=$('toboganColorA').value;
+        payload.tobogan_color_b=$('toboganColorB').value;
+      }
+      payload.entrada=payload.net&&$('entrada').checked;
+      if(payload.entrada){
+        if(!selectedEntradaCell){
+          alert('Primero haz clic en una celda de la orilla de la vista previa para la entrada.');
+          return;
+        }
+        payload.entrada_edge=selectedEntradaCell.edge;
+        payload.entrada_index=(selectedEntradaCell.edge==='x_near'||selectedEntradaCell.edge==='x_far')?selectedEntradaCell.j:selectedEntradaCell.i;
+      }
+      sketchup.createModule(payload);
+    };
+    document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
+  </script>
+</body>
+</html>

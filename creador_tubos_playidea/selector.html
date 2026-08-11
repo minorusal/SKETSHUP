@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Crear tubo Play Idea</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #edf1f5; color: #17202a; font-family: Arial,sans-serif; }
+    header { padding: 18px 22px; background: #173b68; color: white; }
+    h1 { margin: 0 0 5px; font-size: 22px; }
+    header p { margin: 0; opacity: .82; font-size: 13px; }
+    main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+    .card { background: white; padding: 17px; border-radius: 10px; box-shadow: 0 2px 9px #0002; }
+    .wide { grid-column: 1 / -1; }
+    h2 { margin: 0 0 13px; color: #173b68; font-size: 17px; }
+    label { display: block; margin: 11px 0 5px; font-size: 12px; font-weight: bold; color: #455463; }
+    select,input { width: 100%; padding: 9px; border: 1px solid #aeb8c2; border-radius: 6px; background: white; }
+    .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .mode { padding: 11px; border: 2px solid #ccd4dc; border-radius: 8px; cursor: pointer; text-align: center; font-weight: bold; }
+    .mode.active { border-color: #e56b18; color: #bf4b00; background: #fff5ec; }
+    .hidden { display: none; }
+    #fit { margin-top: 13px; padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; }
+    #fit.ok { background: #e7f6ed; color: #17643a; border: 1px solid #8bd0a7; }
+    #fit.bad { background: #fdeceb; color: #8c2820; border: 1px solid #e3a39e; }
+    .tube { position: relative; height: 110px; margin: 18px 8px 8px; }
+    .tube::before { content:''; position:absolute; left:5%; right:5%; top:28px; height:48px; border:3px solid #38444d; background:linear-gradient(#dfe4e7,#929ca2,#dfe4e7); }
+    .tube::after { content:''; position:absolute; right:4%; top:27px; width:18px; height:50px; border:3px solid #38444d; border-radius:50%; background:#f8fafb; }
+    #summary { text-align:center; font-weight:bold; color:#173b68; }
+    button { width:100%; padding:12px; border:0; border-radius:7px; background:#e56b18; color:white; font-weight:bold; cursor:pointer; }
+    button:hover { background:#c8580f; }
+    @media(max-width:590px){ main{grid-template-columns:1fr}.wide{grid-column:auto} }
+  </style>
+</head>
+<body>
+  <header><h1>Creador de tubos Play Idea</h1><p>Elige una medida rápida o captura cualquier longitud.</p></header>
+  <main>
+    <section class="card">
+      <h2>1. Longitud</h2>
+      <div class="modes">
+        <div class="mode active" data-mode="standard">Medida estándar</div>
+        <div class="mode" data-mode="free">Medida libre</div>
+      </div>
+      <div id="standardBox"><label for="standard">Medida registrada</label><select id="standard"></select></div>
+      <div id="freeBox" class="hidden"><label for="freeLength">Longitud en metros</label><input id="freeLength" type="number" min="0.001" step="0.0001" value="0.15"></div>
+    </section>
+    <section class="card">
+      <h2>2. Tubo</h2>
+      <label for="profile">Perfil y espesor</label><select id="profile"></select>
+      <label for="color">Color</label>
+      <select id="color"><option>Azul</option><option>Rojo</option><option>Amarillo</option><option>Verde</option><option>Naranja</option><option>Gris</option><option>Negro</option></select>
+      <label for="code">Código de pieza</label><input id="code" value="TUB-038-1168">
+      <div id="fit"></div>
+    </section>
+    <section class="card wide">
+      <div class="tube"></div><div id="summary"></div>
+      <button id="create">Crear y colocar tubo</button>
+    </section>
+  </main>
+  <script>
+    let catalog, mode='standard';
+    const $=id=>document.getElementById(id);
+    function selectedLength(){
+      return mode==='standard' ? Number($('standard').value) : Number($('freeLength').value);
+    }
+    function update(){
+      if(!catalog) return;
+      const option=$('profile').selectedOptions[0], profile=JSON.parse(option.dataset.profile);
+      const length=selectedLength(), clearance=profile.clearance_mm;
+      $('fit').className=profile.compatible?'ok':'bad';
+      $('fit').textContent=profile.compatible
+        ? `Compatible con conectores: holgura total ${clearance.toFixed(2)} mm.`
+        : `No entra en el receptor de ${catalog.connector_inside_mm.toFixed(2)} mm interiores.`;
+      $('summary').textContent=`Largo ${length.toFixed(4)} m · Ø exterior ${profile.outside_mm.toFixed(1)} mm · espesor ${profile.wall_mm.toFixed(2)} mm`;
+    }
+    window.loadTubeCatalog=data=>{
+      catalog=data;
+      data.standards.forEach(item=>{const o=document.createElement('option');o.value=item.meters;o.textContent=item.label;$('standard').appendChild(o)});
+      data.profiles.forEach(profile=>{const o=document.createElement('option');o.value=`${profile.outside_mm}|${profile.schedule}`;o.dataset.profile=JSON.stringify(profile);o.textContent=`Ø${profile.outside_mm.toFixed(1)} mm · ${profile.schedule} · pared ${profile.wall_mm.toFixed(2)} mm`;$('profile').appendChild(o)});
+      update();
+    };
+    document.querySelectorAll('.mode').forEach(button=>button.onclick=()=>{
+      mode=button.dataset.mode;
+      document.querySelectorAll('.mode').forEach(x=>x.classList.toggle('active',x===button));
+      $('standardBox').classList.toggle('hidden',mode!=='standard');
+      $('freeBox').classList.toggle('hidden',mode!=='free');
+      update();
+    });
+    ['standard','freeLength','profile'].forEach(id=>$(id).addEventListener('input',update));
+    $('create').onclick=()=>{
+      const profile=JSON.parse($('profile').selectedOptions[0].dataset.profile);
+      sketchup.createTube({
+        length_m:selectedLength(), outside_mm:profile.outside_mm, schedule:profile.schedule,
+        color:$('color').value, code:$('code').value, length_mode:mode,
+        standard_name:mode==='standard' ? $('standard').selectedOptions[0].textContent : ''
+      });
+    };
+    document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
+  </script>
+</body>
+</html>

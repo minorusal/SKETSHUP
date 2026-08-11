@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Torre de Pisos Triangulares</title>
+  <style>
+    *{box-sizing:border-box} body{margin:0;background:#edf1f5;color:#17202a;font-family:Arial,sans-serif}
+    header{padding:16px 20px;background:#173b68;color:white} h1{margin:0 0 5px;font-size:19px} header p{margin:0;opacity:.82;font-size:12px}
+    main{padding:16px}.card{background:white;padding:17px;border-radius:10px;box-shadow:0 2px 9px #0002}
+    h2{margin:0 0 12px;color:#173b68;font-size:16px}label{display:block;margin:10px 0 5px;font-size:12px;font-weight:bold;color:#455463}
+    input,select{width:100%;padding:9px;border:1px solid #aeb8c2;border-radius:6px;background:white}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    button{width:100%;padding:12px;border:0;border-radius:7px;background:#e56b18;color:white;font-weight:bold;cursor:pointer;margin-top:14px}button:hover{background:#c8580f}
+    .note{font-size:11px;color:#6c7882;margin-top:9px;line-height:1.5}
+    #summary{margin:12px 0 0;padding:11px;border-radius:7px;background:#eaf1f8;color:#234f7d;font-size:13px;line-height:1.5}
+  </style>
+</head>
+<body>
+  <header><h1>Torre de Pisos Triangulares Play Idea</h1><p>Tubo diagonal a 45° por escalón, con conectores CON-12 en cada extremo.</p></header>
+  <main>
+    <section class="card">
+      <h2>Medida de la celda</h2>
+      <div class="grid2">
+        <div><label for="cx">Ancho (m)</label><input id="cx" type="number" min=".01" step=".0001"></div>
+        <div><label for="cy">Largo (m)</label><input id="cy" type="number" min=".01" step=".0001"></div>
+      </div>
+      <label for="corner">Ángulo recto en la esquina</label>
+      <select id="corner">
+        <option value="sw">Suroeste</option>
+        <option value="se">Sureste</option>
+        <option value="ne">Noreste</option>
+        <option value="nw">Noroeste</option>
+      </select>
+      <h2 style="margin-top:18px">Escalones</h2>
+      <div class="grid2">
+        <div><label for="steps">Cantidad</label><input id="steps" type="number" min="1" max="50" value="3"></div>
+        <div><label for="spacing">Separación (mm)</label><input id="spacing" type="number" min="1" step="1"></div>
+      </div>
+      <label for="startHeight">Altura del primer escalón (m)</label><input id="startHeight" type="number" min="0" step=".001" value="0.7">
+      <label for="color">Color de los tubos</label>
+      <select id="color"><option>Azul</option><option>Rojo</option><option>Amarillo</option><option>Verde</option><option>Naranja</option><option>Gris</option><option>Negro</option></select>
+      <label for="code">Código de la torre</label><input id="code" placeholder="(automático)">
+      <div id="summary"></div>
+      <button id="create">Colocar torre</button>
+      <p class="note">Al hacer clic en el modelo, ese punto será la esquina SUROESTE de la celda de la torre -sin importar qué esquina elijas arriba como ángulo recto-. Todos los escalones usan la misma dirección, sin alternar. No modifica los conectores de la cuadrícula existente en esas esquinas -si no embonan tal cual, hay que ajustarlos a mano después, como ya se ha hecho en los ejemplos de referencia-.</p>
+    </section>
+  </main>
+  <script>
+    const $=id=>document.getElementById(id);
+    function updateSummary(){
+      const steps=+$('steps').value,spacing=+$('spacing').value,start=+$('startHeight').value*1000;
+      const top=start+(steps-1)*spacing;
+      $('summary').innerHTML=`${steps} escalón(es), de ${start.toFixed(0)}mm a ${top.toFixed(0)}mm de altura (separados ${spacing}mm).`;
+    }
+    ['steps','spacing','startHeight'].forEach(id=>$(id).addEventListener('input',updateSummary));
+    window.loadDefaults=data=>{
+      $('cx').value=data.default_spacing_m;
+      $('cy').value=data.default_spacing_y_m!==undefined?data.default_spacing_y_m:data.default_spacing_m;
+      $('spacing').value=data.step_spacing_mm;
+      if(data.color){$('color').value=data.color;}
+      updateSummary();
+    };
+    $('create').onclick=()=>{
+      sketchup.createTriangleTower({
+        cell_x_m:+$('cx').value, cell_y_m:+$('cy').value,
+        corner:$('corner').value,
+        steps:+$('steps').value, step_spacing_mm:+$('spacing').value,
+        start_height_m:+$('startHeight').value,
+        color:$('color').value, code:$('code').value
+      });
+    };
+    document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
+  </script>
+</body>
+</html>

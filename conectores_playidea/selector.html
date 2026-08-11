@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Conectores Play Idea</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eef1f4; color: #17202a; }
+    header { padding: 18px 22px 12px; background: #173b68; color: white; }
+    header h1 { margin: 0 0 4px; font-size: 21px; }
+    header p { margin: 0; opacity: .82; font-size: 13px; }
+    main { display: grid; grid-template-columns: 250px 1fr; gap: 16px; padding: 16px; }
+    .panel { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 2px 9px #0002; }
+    label { display: block; margin: 0 0 5px; font-size: 12px; font-weight: bold; color: #455463; }
+    select { width: 100%; margin: 0 0 13px; padding: 9px; border: 1px solid #aeb8c2; border-radius: 6px; background: white; }
+    button { width: 100%; margin-top: 4px; padding: 11px; border: 0; border-radius: 7px; background: #e56b18; color: white; font-weight: bold; cursor: pointer; }
+    button:hover { background: #c8580f; }
+    #title { margin: 0; font-size: 25px; color: #173b68; }
+    #description { margin: 5px 0 10px; color: #536271; }
+    #preview { display: block; width: 100%; height: 390px; object-fit: contain; border: 1px solid #d7dde3; border-radius: 8px; background: white; }
+    .note { margin: 8px 0 0; font-size: 12px; color: #687683; text-align: center; }
+    @media (max-width: 610px) { main { grid-template-columns: 1fr; } #preview { height: 310px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Biblioteca de conectores Play Idea</h1>
+    <p>Selecciona un código para revisar su forma antes de colocarlo.</p>
+  </header>
+  <main>
+    <section class="panel">
+      <label for="code">Código del conector</label>
+      <select id="code"></select>
+      <label for="color">Color / acabado</label>
+      <select id="color">
+        <option>Galvanizado</option><option>Azul</option><option>Rojo</option>
+        <option>Amarillo</option><option>Verde</option><option>Naranja</option><option>Negro</option>
+      </select>
+      <label for="material">Material del receptor</label>
+      <select id="material">
+        <option>Acero al carbón</option><option>Acero galvanizado</option><option>Acero inoxidable</option>
+      </select>
+      <label for="hardware">Tuerca / opresor</label>
+      <select id="hardware"><option>M6</option><option selected>M8</option><option>M10</option><option>M12</option></select>
+      <button id="insert">Insertar este conector</button>
+    </section>
+    <section class="panel">
+      <h2 id="title">Conector</h2>
+      <p id="description"></p>
+      <img id="preview" alt="Vista real del conector generada por SketchUp">
+      <p class="note">Miniatura creada directamente con la geometría 3D del plugin.</p>
+    </section>
+  </main>
+  <script>
+    let connectors = [];
+    function render() {
+      const code=document.getElementById('code').value;
+      const item=connectors.find(x=>x.code===code);
+      document.getElementById('title').textContent=`Conector ${code}`;
+      document.getElementById('description').textContent=item ? item.description : '';
+      const preview=document.getElementById('preview');
+      preview.src=item && item.preview ? item.preview : '';
+      preview.alt=`Vista real del conector ${code} generada por SketchUp`;
+    }
+    window.loadConnectors=function(items) {
+      connectors=items;
+      const select=document.getElementById('code');
+      select.replaceChildren(...items.map(item=>{
+        const option=document.createElement('option');
+        option.value=item.code; option.textContent=`${item.code} — ${item.description}`; return option;
+      }));
+      render();
+    };
+    document.getElementById('code').addEventListener('change',render);
+    document.getElementById('insert').addEventListener('click',()=>{
+      sketchup.insertConnector(
+        document.getElementById('code').value,
+        document.getElementById('color').value,
+        document.getElementById('material').value,
+        document.getElementById('hardware').value
+      );
+    });
+    document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
+  </script>
+</body>
+</html>
