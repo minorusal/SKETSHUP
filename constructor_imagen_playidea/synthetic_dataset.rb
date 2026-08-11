@@ -9,6 +9,7 @@ module PlayIdea
       [-1.0, -1.0, 0.55], [1.0, -1.0, 0.55]
     ].freeze
     SYNTHETIC_COLORS = %w[Azul Rojo Verde Amarillo Naranja Morado].freeze
+    SYNTHETIC_HALF_MODULE_MM = MODULE_INTERNAL_MM / 2.0
 
     def synthetic_dataset_root
       File.join(Dir.home, 'Library', 'Application Support', 'PlayIdea', 'constructor_imagen_dataset')
@@ -70,9 +71,11 @@ module PlayIdea
       ny = rand(1..4)
       nz = rand(1..4)
       spacing = MODULE_INTERNAL_MM
+      spacing_x = synthetic_axis_spacings(nx)
+      spacing_y = synthetic_axis_spacings(ny)
       params = {
         modules_x: nx, modules_y: ny, modules_z: nz,
-        spacing_x_mm: spacing, spacing_y_mm: spacing, spacing_z_mm: spacing,
+        spacing_x_mm: spacing_x, spacing_y_mm: spacing_y, spacing_z_mm: spacing,
         color: SYNTHETIC_COLORS.sample, code: "SYN-#{nx}X#{ny}X#{nz}",
         connectors: true, padding: false
       }
@@ -83,7 +86,7 @@ module PlayIdea
       images = []
       views = []
       SYNTHETIC_CAMERA_DIRECTIONS.each_with_index do |direction, view_index|
-        set_synthetic_camera(model.active_view, nx, ny, nz, spacing, direction)
+        set_synthetic_camera(model.active_view, spacing_x, spacing_y, nz, spacing, direction)
         model.active_view.zoom_extents
         model.active_view.refresh
         width = model.active_view.vpwidth
@@ -91,7 +94,7 @@ module PlayIdea
         filename = "vista_#{(view_index + 1).to_s.rjust(2, '0')}.png"
         path = File.join(directory, filename)
         model.active_view.write_image(path, width, height, true, 0.92)
-        posts = projected_synthetic_posts(model.active_view, nx, ny, nz, spacing, width, height)
+        posts = projected_synthetic_posts(model.active_view, spacing_x, spacing_y, nz, spacing, width, height)
         images << { index: view_index + 1, original_name: filename, file: filename }
         views << { view_index: view_index + 1, image_width: width, image_height: height, posts: posts }
       end
@@ -100,7 +103,10 @@ module PlayIdea
         module_internal_mm: spacing, images: images, views: views,
         anchor_views: { front_view: 1, depth_view: 3 }, correspondences: [],
         training_scope: 'post_detection_synthetic',
-        synthetic_parameters: { modules_x: nx, modules_y: ny, modules_z: nz, color: params[:color] },
+        synthetic_parameters: {
+          modules_x: nx, modules_y: ny, modules_z: nz, color: params[:color],
+          spacing_x_mm: spacing_x, spacing_y_mm: spacing_y, spacing_z_mm: spacing
+        },
         labels: { post: 'poste estructural vertical', endpoint_order: %w[top bottom] }
       }
       File.write(File.join(directory, 'annotations.json'), JSON.pretty_generate(annotation))
@@ -111,9 +117,17 @@ module PlayIdea
       raise
     end
 
-    def set_synthetic_camera(view, nx, ny, nz, spacing, direction)
-      width = nx * spacing.mm
-      depth = ny * spacing.mm
+    def synthetic_axis_spacings(count)
+      Array.new(count) { rand < 0.35 ? SYNTHETIC_HALF_MODULE_MM : MODULE_INTERNAL_MM }
+    end
+
+    def synthetic_axis_positions(spacings)
+      spacings.each_with_object([0.0]) { |value, positions| positions << positions[-1] + value }
+    end
+
+    def set_synthetic_camera(view, spacing_x, spacing_y, nz, spacing, direction)
+      width = spacing_x.sum.mm
+      depth = spacing_y.sum.mm
       height = (nz * spacing + PlayIdea::ConstructorModulos::BASE_GRID_HEIGHT_MM).mm
       center = Geom::Point3d.new(width / 2.0, depth / 2.0, height / 2.0)
       vector = Geom::Vector3d.new(*direction).normalize
@@ -124,13 +138,13 @@ module PlayIdea
       view.camera = camera
     end
 
-    def projected_synthetic_posts(view, nx, ny, nz, spacing, width, height)
+    def projected_synthetic_posts(view, spacing_x, spacing_y, nz, spacing, width, height)
       top_mm = PlayIdea::ConstructorModulos.grid_level_z(nz, nz, spacing).to_mm
       posts = []
-      (0..nx).each do |i|
-        (0..ny).each do |j|
-          bottom = view.screen_coords(Geom::Point3d.new((i * spacing).mm, (j * spacing).mm, 0))
-          top = view.screen_coords(Geom::Point3d.new((i * spacing).mm, (j * spacing).mm, top_mm.mm))
+      synthetic_axis_positions(spacing_x).each do |x_mm|
+        synthetic_axis_positions(spacing_y).each do |y_mm|
+          bottom = view.screen_coords(Geom::Point3d.new(x_mm.mm, y_mm.mm, 0))
+          top = view.screen_coords(Geom::Point3d.new(x_mm.mm, y_mm.mm, top_mm.mm))
           next unless [bottom.x, bottom.y, top.x, top.y].all?(&:finite?)
           next if [bottom.x, top.x].max < 0 || [bottom.x, top.x].min >= width || [bottom.y, top.y].max < 0 || [bottom.y, top.y].min >= height
           posts << {

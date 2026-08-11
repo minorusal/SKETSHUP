@@ -18,6 +18,7 @@ El Constructor orquesta geometría ya validada. Depende de `creador_tubos_playid
 ## Convenciones dimensionales
 
 - Módulo interno estándar: `DEFAULT_SPACING_M = 1.1684`, es decir, `1168.4 mm` entre nodos. Es la referencia de escala para reconstrucción desde imágenes.
+- Las separaciones estructurales horizontales confirmadas son `1168.4 mm` (módulo completo) y `584.2 mm` (medio módulo). El reconocimiento y los datasets deben contemplar ambas; no redondear siempre al módulo completo.
 - X, Y y Z pueden tener separaciones escalares o arreglos por tramo. Usar `axis_column_width_mm`, `axis_cumulative_mm`, `axis_total_mm`, `spacing_z_length` y `grid_level_z`; no multiplicar índices por una constante si existen medios módulos o alturas distintas.
 - Medio módulo X/Y agrega un tramo final de la mitad del módulo normal y aumenta el conteo de ese eje. No existe medio módulo Z.
 - La unidad interna de SketchUp es pulgada. Mantener cálculos en mm y convertir con `.mm` solo al cruzar a `Geom`/SketchUp.
@@ -114,7 +115,7 @@ Flujo esperado:
 - Permitir guardar ejemplos sin cuatro correspondencias: sirven para entrenar detección de postes. Clasificarlos como `post_detection`; reservar `multiview_geometry` para ejemplos con al menos cuatro parejas.
 - Empezar aprendiendo una sola clase: poste estructural vertical. Agregar tubos horizontales, conectores y accesorios como clases separadas después de validar esta primera clase.
 - Preferir generar ejemplos sintéticos desde modelos SketchUp conocidos, proyectando sus tubos con la cámara, para ampliar el dataset sin etiquetado manual repetitivo.
-- Para dataset sintético, exigir un modelo vacío, construir mediante el Constructor real, variar X/Y/Z, color y cámara, exportar a la resolución exacta del viewport y obtener punta/base con `view.screen_coords` desde las coordenadas conocidas. Borrar cada estructura temporal y restaurar la cámara al terminar.
+- Para dataset sintético, exigir un modelo vacío, construir mediante el Constructor real, variar X/Y/Z, separaciones de 1168.4/584.2 mm, color y cámara, exportar a la resolución exacta del viewport y obtener punta/base con `view.screen_coords` desde las coordenadas conocidas. Borrar cada estructura temporal y restaurar la cámara al terminar.
 - Etiquetar el origen sintético en metadatos y mezclarlo con ejemplos reales; nunca medir calidad únicamente sobre las imágenes sintéticas usadas para entrenar.
 - Reentrenar el detector local al guardar cada ejemplo válido y registrar cantidad de ejemplos/muestras. Considerar el modelo experimental mientras no haya diversidad de juegos; evaluar siempre sobre un juego no usado para entrenamiento.
 - Tratar la altura obtenida por razón entre longitud proyectada del poste y paso modular proyectado como provisional. Mostrar niveles, milímetros, punta y base sobre la imagen; no usarla todavía para construir hasta validarla entre vistas o contra niveles horizontales.
