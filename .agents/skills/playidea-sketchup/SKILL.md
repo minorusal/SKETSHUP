@@ -1,6 +1,6 @@
 ---
 name: playidea-sketchup
-description: Desarrollar, diagnosticar, probar y empaquetar los plugins y scripts Ruby de SketchUp del repositorio Play Idea. Usar al trabajar con cualquier loader, main.rb, HtmlDialog, paquete RBZ o script de geometría de este repositorio, especialmente constructor_modulos_playidea, conectores, tubos, toboganes, accesorios, albercas, plataformas, paneles, auditoría, etiquetado, coloreado y cotización.
+description: Desarrollar, diagnosticar, probar y empaquetar los plugins y scripts Ruby de SketchUp del repositorio Play Idea. Usar al trabajar con cualquier loader, main.rb, HtmlDialog, paquete RBZ o script de geometría de este repositorio, especialmente constructor_modulos_playidea, constructor_imagen_playidea, conectores, tubos, toboganes, accesorios, albercas, plataformas, paneles, auditoría, etiquetado, coloreado y cotización.
 ---
 
 # Play Idea SketchUp
@@ -21,6 +21,7 @@ Trabajar como especialista en la arquitectura Ruby/SketchUp y las convenciones g
 ## Referencias por tarea
 
 - Leer [architecture.md](references/architecture.md) para estructura del repositorio, dependencias, alcance entre plugins, nomenclatura y materiales.
+- Leer [constructor-modulos.md](references/constructor-modulos.md) **obligatoriamente** para cualquier cambio en `constructor_modulos_playidea`, para todo generador que cree juegos modulares y para integraciones desde `constructor_imagen_playidea`. El Constructor es el motor central y no debe reducirse a una cuadrícula de tubos.
 - Leer [geometry.md](references/geometry.md) para crear o corregir geometría, transformaciones, unidades, caras, componentes, tubos y colisiones.
 - Leer [testing-and-packaging.md](references/testing-and-packaging.md) para pruebas, diagnóstico con mocks/capturas, compatibilidad Ruby y empaquetado RBZ.
 - Leer [tobogan.md](references/tobogan.md) para cualquier archivo `tobogan*`, piezas del ducto, brazos, soleras, tornillería, ligas, entrada o integración con el constructor.
