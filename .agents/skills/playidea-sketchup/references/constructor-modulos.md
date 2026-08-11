@@ -114,6 +114,7 @@ Flujo esperado:
 - Permitir guardar ejemplos sin cuatro correspondencias: sirven para entrenar detección de postes. Clasificarlos como `post_detection`; reservar `multiview_geometry` para ejemplos con al menos cuatro parejas.
 - Empezar aprendiendo una sola clase: poste estructural vertical. Agregar tubos horizontales, conectores y accesorios como clases separadas después de validar esta primera clase.
 - Preferir generar ejemplos sintéticos desde modelos SketchUp conocidos, proyectando sus tubos con la cámara, para ampliar el dataset sin etiquetado manual repetitivo.
+- Reentrenar el detector local al guardar cada ejemplo válido y registrar cantidad de ejemplos/muestras. Considerar el modelo experimental mientras no haya diversidad de juegos; evaluar siempre sobre un juego no usado para entrenamiento.
 
 ## Verificación mínima
 

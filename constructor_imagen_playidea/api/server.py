@@ -53,6 +53,112 @@ def training_dataset_dir() -> Path:
     return Path.home() / "Library" / "Application Support" / "PlayIdea" / "constructor_imagen_dataset"
 
 
+POST_WINDOW = (32, 128)
+POST_HOG = cv2.HOGDescriptor(POST_WINDOW, (16, 16), (8, 8), (8, 8), 9)
+_post_model_cache: tuple[float, object] | None = None
+
+
+def post_model_path() -> Path:
+    return training_dataset_dir() / "models" / "post_detector.xml"
+
+
+def post_patch(image: np.ndarray, candidate: dict) -> np.ndarray:
+    height, width = image.shape[:2]
+    half_width = max(10, round(width * 0.018))
+    x = round(candidate["x_px"])
+    y1 = max(0, round(candidate["top_y_px"]) - 5)
+    y2 = min(height, round(candidate["bottom_y_px"]) + 6)
+    x1, x2 = max(0, x - half_width), min(width, x + half_width + 1)
+    crop = image[y1:y2, x1:x2]
+    if crop.size == 0:
+        crop = np.zeros((POST_WINDOW[1], POST_WINDOW[0], 3), dtype=np.uint8)
+    return cv2.resize(crop, POST_WINDOW, interpolation=cv2.INTER_AREA)
+
+
+def post_descriptor(image: np.ndarray, candidate: dict) -> np.ndarray:
+    gray = cv2.cvtColor(post_patch(image, candidate), cv2.COLOR_BGR2GRAY)
+    return POST_HOG.compute(gray).reshape(-1).astype(np.float32)
+
+
+def load_post_model():
+    global _post_model_cache
+    path = post_model_path()
+    if not path.exists():
+        return None
+    modified = path.stat().st_mtime
+    if _post_model_cache is None or _post_model_cache[0] != modified:
+        _post_model_cache = (modified, cv2.ml.SVM_load(str(path)))
+    return _post_model_cache[1]
+
+
+def apply_learned_post_model(image: np.ndarray, candidates: list[dict]) -> None:
+    model = load_post_model()
+    for candidate in candidates:
+        if model is None:
+            candidate["structural_post"] = candidate["structural_blue"]
+            candidate["detector_source"] = "color_heuristic"
+            continue
+        descriptor = post_descriptor(image, candidate).reshape(1, -1)
+        _unused, prediction = model.predict(descriptor)
+        candidate["structural_post"] = bool(prediction[0, 0] > 0)
+        candidate["detector_source"] = "learned_hog_svm"
+
+
+def annotation_matches(candidate: dict, post: dict, width: int, height: int) -> bool:
+    close_x = abs(candidate["x_px"] - post["x"]) <= max(10.0, width * 0.025)
+    overlap = max(0.0, min(candidate["bottom_y_px"], post["bottom_y"]) - max(candidate["top_y_px"], post["top_y"]))
+    annotated_span = max(1.0, post["bottom_y"] - post["top_y"])
+    return close_x and overlap / annotated_span >= 0.45
+
+
+def train_post_detector() -> dict:
+    descriptors, labels = [], []
+    example_count = 0
+    for annotation_path in sorted(training_dataset_dir().glob("ejemplo_*/annotations.json")):
+        annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
+        example_count += 1
+        for image_record, view in zip(annotation["images"], annotation["views"]):
+            image = cv2.imread(str(annotation_path.parent / image_record["file"]))
+            if image is None:
+                continue
+            scale = min(1.0, 1600.0 / max(image.shape[:2]))
+            if scale < 1.0:
+                image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            analysis = analyze_image((annotation_path.parent / image_record["file"]).read_bytes(), image_record["file"])
+            posts = view.get("posts", [])
+            for candidate in analysis["post_candidates"]:
+                label = 1 if any(annotation_matches(candidate, post, image.shape[1], image.shape[0]) for post in posts) else -1
+                patch = post_patch(image, candidate)
+                for variant in (patch, cv2.flip(patch, 1), cv2.convertScaleAbs(patch, alpha=0.82, beta=15)):
+                    gray = cv2.cvtColor(variant, cv2.COLOR_BGR2GRAY)
+                    descriptors.append(POST_HOG.compute(gray).reshape(-1))
+                    labels.append(label)
+    positives, negatives = labels.count(1), labels.count(-1)
+    if positives < 6 or negatives < 6:
+        raise HTTPException(status_code=422, detail=f"Datos insuficientes: {positives} positivos y {negatives} negativos.")
+    samples = np.asarray(descriptors, dtype=np.float32)
+    responses = np.asarray(labels, dtype=np.int32)
+    svm = cv2.ml.SVM_create()
+    svm.setType(cv2.ml.SVM_C_SVC)
+    svm.setKernel(cv2.ml.SVM_LINEAR)
+    svm.setC(1.5)
+    if not svm.train(samples, cv2.ml.ROW_SAMPLE, responses):
+        raise HTTPException(status_code=500, detail="OpenCV no pudo entrenar el detector.")
+    path = post_model_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    svm.save(str(path))
+    metadata = {"examples": example_count, "positive_samples": positives, "negative_samples": negatives, "descriptor": "HOG", "model": path.name}
+    (path.parent / "post_detector.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    global _post_model_cache
+    _post_model_cache = None
+    return {"ok": True, **metadata, "path": str(path)}
+
+
+@app.post("/train-post-detector")
+def train_post_detector_endpoint() -> dict:
+    return train_post_detector()
+
+
 @app.post("/training-example")
 def save_training_example(payload: TrainingExampleRequest) -> dict:
     if len(payload.images) != len(payload.views):
@@ -88,7 +194,11 @@ def save_training_example(payload: TrainingExampleRequest) -> dict:
         )
     except (ValueError, binascii.Error, OSError) as error:
         raise HTTPException(status_code=422, detail=f"No se pudo guardar el ejemplo: {error}")
-    return {"ok": True, "example_id": example_id, "path": str(example_dir)}
+    try:
+        training = train_post_detector()
+    except HTTPException as error:
+        training = {"ok": False, "pending": True, "message": str(error.detail)}
+    return {"ok": True, "example_id": example_id, "path": str(example_dir), "training": training}
 
 
 def classify_angle(angle_deg: float) -> str:
@@ -180,7 +290,7 @@ def build_post_candidates(segments: list[dict], width: int, height: int) -> list
 
 def projected_grid_groups(posts: list[dict], module_internal_mm: float, image_height: int) -> list[dict]:
     selected = sorted(
-        [post for post in posts if post["structural_blue"] and post["confidence"] >= 0.45],
+        [post for post in posts if post.get("structural_post", post["structural_blue"]) and post["confidence"] >= 0.45],
         key=lambda post: (post["bottom_y_px"], post["top_y_px"]),
     )
     if len(selected) < 2:
@@ -309,6 +419,7 @@ def analyze_image(raw: bytes, filename: str) -> dict:
     segments = [segment for segment in raw_segments if not is_presentation_border(segment, width, height)]
     counts = {kind: sum(1 for segment in segments if segment["kind"] == kind) for kind in ("horizontal", "vertical", "diagonal")}
     post_candidates = build_post_candidates(segments, width, height)
+    apply_learned_post_model(image, post_candidates)
     grid_groups = projected_grid_groups(post_candidates, 1168.4, height)
     return {
         "filename": filename,
@@ -382,7 +493,7 @@ def strongest_grid(view: dict) -> dict | None:
 def inferred_levels(view: dict, grid: dict | None) -> int:
     if not grid or grid["projected_step_px"] <= 0:
         return 1
-    structural = [post for post in view["post_candidates"] if post["structural_blue"]]
+    structural = [post for post in view["post_candidates"] if post.get("structural_post", post["structural_blue"])]
     if not structural:
         return 1
     median_height = float(np.median([post["span_px"] for post in structural]))

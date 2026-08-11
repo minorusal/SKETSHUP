@@ -144,7 +144,7 @@
     function renderPostEditor(view,index){
       const source=state.files[index];
       const sx=view.analysis_size.width/view.original_size.width,sy=view.analysis_size.height/view.original_size.height;
-      const marks=view.post_candidates.filter(post=>post.structural_blue).map(post=>({x:post.x_px,y1:post.top_y_px,y2:post.bottom_y_px,automatic:true}));
+      const marks=view.post_candidates.filter(post=>(post.structural_post??post.structural_blue)).map(post=>({x:post.x_px,y1:post.top_y_px,y2:post.bottom_y_px,automatic:true}));
       const edit={marks,confirmed:false,width:view.analysis_size.width,height:view.analysis_size.height};state.postEdits[index]=edit;
       const card=document.createElement('div');card.className='analysis-view';card.dataset.view=index;
       const canvas=document.createElement('div');canvas.className='post-canvas';
@@ -225,7 +225,8 @@
         const response=await fetch(`${state.reference.api_url}/training-example`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
         const result=await response.json();if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:JSON.stringify(result.detail||result));
         const scope=state.pairs.length>=4?'detección y geometría multivista':'detección de postes';
-        showStatus(`Ejemplo ${result.example_id} guardado para ${scope}.`);
+        const learned=result.training&&result.training.ok?` Detector reentrenado con ${result.training.positive_samples} muestras positivas y ${result.training.negative_samples} negativas.`:'';
+        showStatus(`Ejemplo ${result.example_id} guardado para ${scope}.${learned}`);
         $('pairSummary').innerHTML+=`<br><b>Guardado localmente:</b> ${result.path}`;
       }catch(error){showStatus(`No fue posible guardar el ejemplo: ${error.message}`,'error');$('finishPairs').disabled=false}
     }
