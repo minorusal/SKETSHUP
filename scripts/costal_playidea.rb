@@ -40,8 +40,6 @@ module PlayIdeaCostalScript
   # CORNER_CHAMFER_MM en plataforma_playidea.rb- ------------------------
   CYLINDER_WALL_MM = 3.0 # grosor visual de la lona ya enrollada y cosida
   BASE_THICKNESS_MM = 3.0 # base cosida -lado permanente, disco liso a ras-
-  CINTA_WIDTH_MM = 15.0 # cinta cosida al perímetro de la tapa -bastilla-
-  CINTA_HEIGHT_MM = 2.0
 
   # Tapa desmontable -lado pegado con Plastigón-. SEGUNDA corrección del
   # usuario: "imagínate un bote de plástico con su tapa sin rosca, la
@@ -156,7 +154,7 @@ module PlayIdeaCostalScript
 
   def start
     labels = STANDARD_COLOR_PALETTE.map { |c| c[:label] }
-    prompts = ['Color de la lona', 'Color de las cintas (caramelo)']
+    prompts = ['Color de la lona', 'Color de las franjas y la tapa']
     defaults = [labels[3], labels[0]]
     lists = [labels.join('|'), labels.join('|')]
     values = UI.inputbox(prompts, defaults, lists, 'Crear costal Play Idea (rodillo Ø12" x 36") -liso + caramelo-')
@@ -205,27 +203,21 @@ module PlayIdeaCostalScript
     build_cap(entities, model, 0.0, -BASE_THICKNESS_MM, params[:lona_hex])
     # Tapa: pegada con plastigón, lado desmontable para rellenar de foam
     # -"taparrosca sin rosca, entra a presión": faldón de pared doble +
-    # domo redondeado arriba-. La cinta de tela queda como banda
-    # decorativa justo donde el faldón se encuentra con el domo -ya no
-    # hay un "disco plano" al que coserla, ver build_tapa_lid-.
-    tapa_top_z = CYLINDER_LENGTH_MM
-    build_tapa_lid(entities, model, params[:lona_hex])
-    build_cinta_ring(entities, model, tapa_top_z, params[:stripe_hex])
+    # domo redondeado arriba-. Toda la tapa -domo y faldón- usa el color
+    # de las franjas. No lleva un aro horizontal adicional: ese aro hacía
+    # que pareciera un sombrero en vez de una tapa que baja 2".
+    build_tapa_lid(entities, model, params[:stripe_hex])
     build_foam_stack(entities, model)
     build_pvc_post(entities, model)
 
     # Costuras -pedido del usuario, "más detalle de las costuras, no tan
     # recto todo"-: unión base-cuerpo -anillo en z=0-, costura larga
     # donde se enrolló y cosió la lona -línea recta a lo largo del
-    # cuerpo, a un ángulo fijo-, hilo de la cinta de la tapa -anillo en
-    # el borde interior Y en el borde exterior de la cinta-, y bastilla
-    # de las cintas caramelo -en sus 2 orillas, ver build_stripe_
-    # stitches-. NO hay costura en la unión cuerpo-tapa: ese lado va
-    # pegado con Plastigón, no cosido.
+    # cuerpo, a un ángulo fijo-, y bastilla de las cintas caramelo -en sus
+    # 2 orillas, ver build_stripe_stitches-. NO hay costura en la tapa:
+    # es plástico a presión y no una banda de tela cosida.
     build_stitch_ring(entities, model, 0.0, CYLINDER_RADIUS_MM)
     build_stitch_line_straight(entities, model, 0.0, CYLINDER_RADIUS_MM, 0.0, CYLINDER_LENGTH_MM)
-    build_stitch_ring(entities, model, tapa_top_z, TAPA_OUTER_R_MM)
-    build_stitch_ring(entities, model, tapa_top_z, TAPA_OUTER_R_MM + CINTA_WIDTH_MM)
     build_stripe_stitches(entities, model) if variant == 'caramelo'
 
     write_attributes(definition, params, code, variant)
@@ -410,25 +402,6 @@ module PlayIdeaCostalScript
       outer_skirt_z1
     )
     material = costal_material(model, 'Tapa', hex)
-    paint_new_faces(entities, material)
-  end
-
-  # Cinta cosida al perímetro de la tapa -mismo patrón de pared hueca que
-  # build_tube_shell, aquí un tramo corto-. La bastilla/costura en sí ya
-  # SÍ se modela -ver build_stitch_ring, llamado aparte en build_costal-,
-  # esto solo arma la cinta de tela. Envuelve la orilla REAL de la tapa
-  # -TAPA_OUTER_R_MM, no el radio del cuerpo del tubo, porque la tapa es
-  # más ancha para poder embonar por fuera-.
-  def build_cinta_ring(entities, model, z_mm, hex)
-    z0 = z_mm.mm
-    z1 = (z_mm + CINTA_HEIGHT_MM).mm
-    inner = TAPA_OUTER_R_MM.mm
-    outer = (TAPA_OUTER_R_MM + CINTA_WIDTH_MM).mm
-    add_wall(entities, outer, z0, z1)
-    add_wall(entities, inner, z0, z1)
-    add_ring(entities, inner, outer, z0)
-    add_ring(entities, inner, outer, z1)
-    material = costal_material(model, 'Cinta', hex)
     paint_new_faces(entities, material)
   end
 

@@ -27,8 +27,8 @@ El cilindro se ha interpretado con 36 pulgadas de largo porque coincide con 36 d
 - Cachear el disco de foam si la cantidad de geometría repetida vuelve lenta la creación.
 - Validar que domos y tapas no invadan el hueco central.
 
-La implementación vigente en la rama de Codex construye la tapa como una malla cerrada con cara exterior, cara interior y pared alrededor del hueco. Su faldón baja 2 pulgadas sobre el cuerpo. El PVC mide exactamente lo mismo que el cuerpo, sin sobresalir. Los 36 discos reutilizan una sola definición perforada mediante instancias; preservar estos contratos al hacer cambios posteriores.
+La implementación vigente en la rama de Codex construye la tapa como una malla cerrada con cara exterior, cara interior y pared alrededor del hueco. Toda la tapa usa el color de las franjas y no lleva un aro horizontal independiente. Su faldón baja 2 pulgadas sobre el cuerpo. El PVC mide exactamente lo mismo que el cuerpo, sin sobresalir. Los 36 discos reutilizan una sola definición perforada mediante instancias; preservar estos contratos al hacer cambios posteriores.
 
 ## Estado funcional
 
-El accesorio puede nombrar variantes para una futura cotización, pero no asumir que ya existen productos o tarifas en el cotizador/API. La integración de materiales y precios fue pospuesta. La naturaleza física de la tapa y su combinación de plástico, vinil, cinta y costura requiere confirmación del usuario antes de retirar o reinterpretar piezas.
+El accesorio puede nombrar variantes para una futura cotización, pero no asumir que ya existen productos o tarifas en el cotizador/API. La integración de materiales y precios fue pospuesta.
