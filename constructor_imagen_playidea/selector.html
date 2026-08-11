@@ -22,6 +22,7 @@
     #result{display:none;margin-top:10px;padding:10px;max-height:220px;overflow:auto;border-radius:6px;background:#152536;color:#d7ecff;font:11px/1.45 monospace;white-space:pre-wrap}
     #analysisPreviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px;margin-top:12px}.analysis-view{overflow:hidden;border:1px solid #b9c7d4;border-radius:7px;background:#fff}.post-canvas{position:relative;background:#172334;touch-action:none}.post-canvas img{display:block;width:100%;height:auto}.post-canvas svg{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}.post-line{stroke:#ffb000;stroke-width:5;stroke-dasharray:10 6;vector-effect:non-scaling-stroke}.post-line.confirmed{stroke:#24d06f;stroke-dasharray:none}.post-hit{stroke:transparent;stroke-width:18;vector-effect:non-scaling-stroke;cursor:pointer}.analysis-caption{padding:8px;font-size:11px;line-height:1.4}.editor-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;padding:0 8px 8px}.editor-actions button{padding:8px;font-size:10px}.editor-actions .confirm{background:#24834c}.editor-actions .clear{background:#8b3c32}.analysis-view.confirmed{border:3px solid #24a65d}
     #topology{display:none;margin-top:12px;padding:10px;border:1px solid #b9c7d4;border-radius:8px;background:#f8fbfe}#topology svg{display:block;width:100%;height:auto}.topology-note{font-size:11px;color:#526577;margin-top:6px}
+    #correspondence{display:none;margin-top:12px;padding:12px;border:2px solid #2877a8;border-radius:8px;background:#f5faff}.pair-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px}.pair-view{position:relative;background:#172334}.pair-view img{display:block;width:100%;height:auto}.pair-view svg{position:absolute;inset:0;width:100%;height:100%}.pair-post{stroke:#c6d0da;stroke-width:5;vector-effect:non-scaling-stroke;cursor:pointer}.pair-post.selected{stroke:#00e5ff;stroke-width:8}.pair-hit{stroke:transparent;stroke-width:22;vector-effect:non-scaling-stroke;cursor:pointer}.pair-label{font:bold 24px Arial;paint-order:stroke;stroke:#fff;stroke-width:5px;stroke-linejoin:round}.pair-summary{margin:9px 0;font-size:12px}.pair-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}.pair-actions .clear{background:#8b3c32}
     #metricPlan{display:none;margin-top:12px;padding:12px;border:1px solid #b9c7d4;border-radius:8px;background:white}#metricPlan svg{width:100%;max-height:520px}.metric-table{width:100%;border-collapse:collapse;font-size:11px}.metric-table th,.metric-table td{padding:4px;border-bottom:1px solid #dce4eb;text-align:center}.metric-table input{width:58px;padding:4px}.apply-grid{margin-top:8px;background:#1976a8}
     .warning{padding:10px;border-left:4px solid #e6a318;background:#fff7df;color:#604900;font-size:12px;line-height:1.45}
   </style>
@@ -46,13 +47,14 @@
       <div id="status"></div>
       <div id="analysisPreviews"></div>
       <div id="multiviewSummary" class="fact" style="display:none;margin-top:12px"></div>
+      <div id="correspondence"></div>
       <div id="topology"></div>
       <div id="metricPlan"></div>
       <pre id="result"></pre>
     </section>
   </main>
   <script>
-    const state={reference:null,files:[],apiReady:false,postEdits:[],analysis:null};
+    const state={reference:null,files:[],apiReady:false,postEdits:[],analysis:null,pairs:[],selectedLeft:null};
     const $=id=>document.getElementById(id);
     window.loadReference=data=>{
       state.reference=data;
@@ -115,6 +117,7 @@
       $('prepare').disabled=true;$('result').style.display='none';
       $('analysisPreviews').innerHTML='';
       $('multiviewSummary').style.display='none';
+      $('correspondence').style.display='none';
       $('topology').style.display='none';
       $('metricPlan').style.display='none';
       showStatus(`Analizando ${state.files.length} vista${state.files.length===1?'':'s'} con OpenCV…`,'working');
@@ -126,7 +129,7 @@
           throw new Error(detail||`Error HTTP ${response.status}`);
         }
         showStatus(`Análisis ${result.analysis_id.slice(0,8)} terminado: ${result.image_count} vistas, ${result.totals.vertical} líneas verticales, ${result.totals.horizontal} horizontales y ${result.totals.diagonal} diagonales.`);
-        state.analysis=result;state.postEdits=[];
+        state.analysis=result;state.postEdits=[];state.pairs=[];state.selectedLeft=null;
         result.views.forEach((view,index)=>renderPostEditor(view,index));
         const mv=result.multiview;
         const totalInliers=mv.pairs.reduce((sum,pair)=>sum+pair.geometric_inliers,0);
@@ -174,8 +177,39 @@
     }
     function checkAllViewsConfirmed(){
       if(!state.postEdits.length||!state.postEdits.every(view=>view.confirmed)){showStatus('Vista guardada. Confirma las demás vistas.');return}
-      showStatus('Postes confirmados en todas las vistas. La siguiente fase relacionará los mismos postes entre vistas.');
-      $('multiviewSummary').innerHTML+='<br><b>Fase 1 completa:</b> marcas manuales confirmadas. La creación 3D permanece bloqueada hasta resolver correspondencias.';
+      showStatus('Postes confirmados. Empareja ahora el mismo poste entre las dos vistas de referencia.','working');
+      $('multiviewSummary').innerHTML+='<br><b>Fase 1 completa:</b> marcas manuales confirmadas. Continúa con la correspondencia de postes.';
+      renderCorrespondence();
+    }
+    function renderCorrespondence(){
+      const mv=state.analysis.multiview,leftIndex=mv.front_anchor_view-1,rightIndex=mv.depth_anchor_view-1;
+      const panel=$('correspondence');panel.style.display='block';
+      panel.innerHTML=`<b>Fase 2 · Correspondencia de postes</b><div class="topology-note">Pulsa un poste en la vista ${leftIndex+1} y después el mismo poste en la vista ${rightIndex+1}. Repite con al menos cuatro postes.</div><div class="pair-grid"><div><b>Vista ${leftIndex+1} · frontal</b><div class="pair-view" id="pairLeft"></div></div><div><b>Vista ${rightIndex+1} · profundidad</b><div class="pair-view" id="pairRight"></div></div></div><div class="pair-summary" id="pairSummary"></div><div class="pair-actions"><button class="clear" id="clearPairs">Borrar correspondencias</button><button id="finishPairs" disabled>Confirmar correspondencias</button></div>`;
+      const drawSide=(containerId,viewIndex,side)=>{
+        const edit=state.postEdits[viewIndex],container=$(containerId),img=document.createElement('img');img.src=state.files[viewIndex].dataUrl;
+        const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox',`0 0 ${edit.width} ${edit.height}`);svg.setAttribute('preserveAspectRatio','none');container.append(img,svg);
+        edit.marks.forEach((mark,markIndex)=>{
+          const pair=state.pairs.find(item=>item[side]===markIndex),selected=side==='left'&&state.selectedLeft===markIndex;
+          const line=document.createElementNS(svg.namespaceURI,'line');line.setAttribute('x1',mark.x);line.setAttribute('x2',mark.x);line.setAttribute('y1',mark.y1);line.setAttribute('y2',mark.y2);line.setAttribute('class',`pair-post${selected?' selected':''}`);if(pair)line.style.stroke=pair.color;
+          const hit=line.cloneNode();hit.setAttribute('class','pair-hit');hit.addEventListener('pointerdown',event=>{event.preventDefault();choosePairPost(side,markIndex)});svg.append(line,hit);
+          if(pair){const label=document.createElementNS(svg.namespaceURI,'text');label.setAttribute('x',mark.x+8);label.setAttribute('y',mark.y1+24);label.setAttribute('class','pair-label');label.setAttribute('fill',pair.color);label.textContent=pair.id;svg.append(label)}
+        });
+      };
+      drawSide('pairLeft',leftIndex,'left');drawSide('pairRight',rightIndex,'right');
+      $('pairSummary').textContent=`${state.pairs.length} correspondencia${state.pairs.length===1?'':'s'} creada${state.pairs.length===1?'':'s'}. ${state.selectedLeft===null?'Selecciona primero en la vista frontal.':'Ahora selecciona el mismo poste en la vista de profundidad.'}`;
+      $('finishPairs').disabled=state.pairs.length<4;
+      $('clearPairs').onclick=()=>{state.pairs=[];state.selectedLeft=null;renderCorrespondence()};
+      $('finishPairs').onclick=()=>{showStatus(`${state.pairs.length} postes emparejados. Fase 2 completa; ya podemos calcular posición y altura en la siguiente fase.`);$('finishPairs').disabled=true};
+    }
+    function choosePairPost(side,markIndex){
+      if(side==='left'){
+        if(state.pairs.some(pair=>pair.left===markIndex)){showStatus('Ese poste frontal ya está emparejado. Borra las correspondencias si necesitas corregirlo.','error');return}
+        state.selectedLeft=markIndex;renderCorrespondence();return;
+      }
+      if(state.selectedLeft===null){showStatus('Selecciona primero el poste correspondiente en la vista frontal.','error');return}
+      if(state.pairs.some(pair=>pair.right===markIndex)){showStatus('Ese poste de profundidad ya está emparejado.','error');return}
+      const colors=['#ff3b30','#34c759','#007aff','#ff9500','#af52de','#00a8a8','#d63384','#795548'];
+      const number=state.pairs.length+1;state.pairs.push({id:`P${number}`,left:state.selectedLeft,right:markIndex,color:colors[(number-1)%colors.length]});state.selectedLeft=null;renderCorrespondence();
     }
     function renderTopology(plan){
       if(!plan||!plan.nodes.length)return;
