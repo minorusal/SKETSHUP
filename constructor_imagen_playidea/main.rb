@@ -204,6 +204,14 @@ module PlayIdea
         UI.messagebox(api[:message])
         return
       end
+      40.times do
+        break if api_running?
+        sleep(0.25)
+      end
+      unless api_running?
+        UI.messagebox('La API local no terminó de arrancar. Revisa el registro de Play Idea.')
+        return
+      end
       @review_dialog&.close
       @review_dialog = UI::HtmlDialog.new(dialog_title: 'Revisión rápida de postes', preferences_key: 'PlayIdeaBatchReview', scrollable: true, resizable: true, width: 1050, height: 820, style: UI::HtmlDialog::STYLE_DIALOG)
       @review_dialog.set_file(File.join(__dir__, 'batch_review.html'))
