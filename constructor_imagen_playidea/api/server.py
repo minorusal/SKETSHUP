@@ -5,6 +5,9 @@ import base64
 import binascii
 import uuid
 import json
+import hashlib
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -15,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.17.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.18.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,7 +29,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.17.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.18.0"}
 
 
 class EncodedImage(BaseModel):
@@ -51,6 +54,11 @@ class TrainingExampleRequest(BaseModel):
     known_dimensions: dict = Field(default_factory=dict)
 
 
+class BatchAnalysisRequest(BaseModel):
+    root_path: str
+    max_images: int = 10_000
+
+
 def training_dataset_dir() -> Path:
     return Path.home() / "Library" / "Application Support" / "PlayIdea" / "constructor_imagen_dataset"
 
@@ -60,6 +68,128 @@ POST_HOG = cv2.HOGDescriptor(POST_WINDOW, (16, 16), (8, 8), (8, 8), 9)
 _post_model_cache: tuple[float, object] | None = None
 _offset_model_cache: dict[str, tuple[float, object]] = {}
 _training_mode = False
+_batch_jobs: dict[str, dict] = {}
+_batch_lock = threading.Lock()
+
+
+def public_batch_job(job: dict) -> dict:
+    return {key: value for key, value in job.items() if key != "root_path"}
+
+
+def batch_import_dir(job_id: str) -> Path:
+    return training_dataset_dir() / "batch_imports" / job_id
+
+
+def save_batch_manifest(job: dict) -> None:
+    output_dir = batch_import_dir(job["job_id"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest = public_batch_job(job)
+    manifest["root_path"] = job["root_path"]
+    (output_dir / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def discover_images_tm(root: Path) -> list[Path]:
+    matches = []
+    if root.name.lower() == "images-tm":
+        matches.append(root)
+    matches.extend(path for path in root.rglob("*") if path.is_dir() and path.name.lower() == "images-tm")
+    return sorted(set(matches))
+
+
+def run_batch_analysis(job_id: str, max_images: int) -> None:
+    job = _batch_jobs[job_id]
+    extensions = {".jpg", ".jpeg", ".png", ".webp"}
+    seen_hashes: set[str] = set()
+    try:
+        folders = discover_images_tm(Path(job["root_path"]))
+        image_paths = []
+        for folder in folders:
+            image_paths.extend(path for path in folder.rglob("*") if path.is_file() and path.suffix.lower() in extensions)
+        image_paths = sorted(image_paths)[:max_images]
+        with _batch_lock:
+            job.update({"status": "analyzing", "folders_found": len(folders), "images_found": len(image_paths)})
+        output_dir = batch_import_dir(job_id)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for index, image_path in enumerate(image_paths, start=1):
+            try:
+                raw = image_path.read_bytes()
+                digest = hashlib.sha256(raw).hexdigest()
+                if digest in seen_hashes:
+                    with _batch_lock:
+                        job["duplicates"] += 1
+                    continue
+                seen_hashes.add(digest)
+                view = analyze_image(raw, image_path.name)
+                view.pop("overlay_data_url", None)
+                structural = [post for post in view["post_candidates"] if post.get("structural_post", post.get("structural_blue", False))]
+                mean_confidence = round(sum(post["confidence"] for post in structural) / len(structural), 3) if structural else 0.0
+                confidence_class = "high_confidence" if len(structural) >= 4 and mean_confidence >= 0.72 and view["projected_grid_groups"] else "needs_review"
+                record = {
+                    "source_path": str(image_path), "project": image_path.parent.parent.name,
+                    "sha256": digest, "confidence_class": confidence_class,
+                    "structural_post_count": len(structural), "mean_post_confidence": mean_confidence,
+                    "analysis": view,
+                }
+                record_name = f"image_{index:06d}_{digest[:10]}.json"
+                (output_dir / record_name).write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+                with _batch_lock:
+                    job["analyzed"] += 1
+                    job[confidence_class] += 1
+            except Exception as error:
+                with _batch_lock:
+                    job["errors"] += 1
+                    if len(job["error_samples"]) < 20:
+                        job["error_samples"].append({"path": str(image_path), "message": str(error)})
+            finally:
+                with _batch_lock:
+                    job["processed"] = index
+                if index % 10 == 0:
+                    save_batch_manifest(job)
+        with _batch_lock:
+            job["status"] = "completed"
+            job["finished_at"] = datetime.now(timezone.utc).isoformat()
+        save_batch_manifest(job)
+    except Exception as error:
+        with _batch_lock:
+            job["status"] = "failed"
+            job["fatal_error"] = str(error)
+            job["finished_at"] = datetime.now(timezone.utc).isoformat()
+        save_batch_manifest(job)
+
+
+@app.post("/batch-analysis")
+def start_batch_analysis(payload: BatchAnalysisRequest) -> dict:
+    root = Path(payload.root_path).expanduser().resolve()
+    if not root.is_dir():
+        raise HTTPException(status_code=422, detail="La carpeta raíz no existe o no es accesible.")
+    if not 1 <= payload.max_images <= 100_000:
+        raise HTTPException(status_code=422, detail="El límite debe estar entre 1 y 100000 imágenes.")
+    active = next((job for job in _batch_jobs.values() if job["status"] in {"scanning", "analyzing"}), None)
+    if active:
+        raise HTTPException(status_code=409, detail=f"Ya está ejecutándose el lote {active['job_id']}.")
+    job_id = f"batch_{uuid.uuid4().hex[:12]}"
+    job = {
+        "job_id": job_id, "root_path": str(root), "status": "scanning",
+        "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None,
+        "folders_found": 0, "images_found": 0, "processed": 0, "analyzed": 0,
+        "duplicates": 0, "high_confidence": 0, "needs_review": 0, "errors": 0,
+        "error_samples": [], "output_path": str(batch_import_dir(job_id)),
+        "training_policy": "predictions_are_not_ground_truth",
+    }
+    with _batch_lock:
+        _batch_jobs[job_id] = job
+    threading.Thread(target=run_batch_analysis, args=(job_id, payload.max_images), daemon=True).start()
+    return public_batch_job(job)
+
+
+@app.get("/batch-analysis/{job_id}")
+def batch_analysis_status(job_id: str) -> dict:
+    job = _batch_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="No se encontró ese análisis por lotes.")
+    return public_batch_job(job)
 
 
 def post_model_path() -> Path:

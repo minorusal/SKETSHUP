@@ -117,6 +117,81 @@ module PlayIdea
       false
     end
 
+    def api_json_request(method, path, payload = nil, read_timeout: 10)
+      request_class = method == :post ? Net::HTTP::Post : Net::HTTP::Get
+      request = request_class.new(path)
+      if payload
+        request['Content-Type'] = 'application/json'
+        request.body = JSON.generate(payload)
+      end
+      response = Net::HTTP.start(API_HOST, API_PORT, open_timeout: 2, read_timeout: read_timeout) do |http|
+        http.request(request)
+      end
+      body = JSON.parse(response.body)
+      raise body.fetch('detail', "Error HTTP #{response.code}").to_s unless response.is_a?(Net::HTTPSuccess)
+      body
+    end
+
+    def start_batch_import
+      root = UI.select_directory(title: 'Selecciona la carpeta que contiene tus proyectos')
+      return unless root
+      api = start_local_api
+      unless api[:ok]
+        UI.messagebox(api[:message])
+        return
+      end
+      20.times do
+        break if api_running?
+        sleep(0.25)
+      end
+      result = api_json_request(:post, '/batch-analysis', { root_path: root }, read_timeout: 15)
+      @batch_job_id = result['job_id']
+      Sketchup.set_status_text("Analizando carpetas IMAGES-TM: #{@batch_job_id}", SB_PROMPT)
+      monitor_batch_import
+      UI.messagebox(
+        "Análisis iniciado en segundo plano.\n\n" \
+        "Lote: #{@batch_job_id}\nRaíz: #{root}\n\n" \
+        'Puedes seguir trabajando; la barra de estado mostrará el avance.'
+      )
+    rescue StandardError => error
+      UI.messagebox("No fue posible iniciar el análisis masivo:\n#{error.message}")
+      puts error.full_message
+    end
+
+    def monitor_batch_import
+      UI.stop_timer(@batch_timer) if @batch_timer
+      @batch_timer = UI.start_timer(2.0, true) do
+        begin
+          result = api_json_request(:get, "/batch-analysis/#{@batch_job_id}", nil, read_timeout: 5)
+          Sketchup.set_status_text(
+            "IMAGES-TM: #{result['processed']}/#{result['images_found']} procesadas; " \
+            "#{result['high_confidence']} confianza alta; #{result['needs_review']} por revisar",
+            SB_PROMPT
+          )
+          next unless %w[completed failed].include?(result['status'])
+          UI.stop_timer(@batch_timer)
+          @batch_timer = nil
+          Sketchup.set_status_text('', SB_PROMPT)
+          if result['status'] == 'completed'
+            UI.messagebox(
+              "Análisis masivo terminado.\n\n" \
+              "Carpetas IMAGES-TM: #{result['folders_found']}\n" \
+              "Imágenes analizadas: #{result['analyzed']}\n" \
+              "Duplicadas: #{result['duplicates']}\n" \
+              "Confianza alta: #{result['high_confidence']}\n" \
+              "Requieren revisión: #{result['needs_review']}\n" \
+              "Errores: #{result['errors']}\n\n" \
+              "Resultados: #{result['output_path']}"
+            )
+          else
+            UI.messagebox("El análisis masivo falló:\n#{result['fatal_error']}")
+          end
+        rescue StandardError => error
+          puts "No se pudo consultar el lote #{@batch_job_id}: #{error.message}"
+        end
+      end
+    end
+
     def validate_metric_plan(payload)
       zones = payload['zones'] if payload.is_a?(Hash)
       unless zones.is_a?(Array) && zones.length.between?(1, 20)
@@ -237,6 +312,7 @@ module PlayIdea
         "Play Idea - Constructor desde Imágenes (v#{EXTENSION.version})"
       )
       menu.add_item('Cargar vistas de un juego') { start }
+      menu.add_item('Analizar carpetas IMAGES-TM por lotes') { start_batch_import }
       menu.add_item('Generar dataset sintético de postes') { generate_synthetic_dataset }
       file_loaded(__FILE__)
     end
