@@ -2,6 +2,7 @@ require 'sketchup.rb'
 require 'json'
 require 'fileutils'
 require 'net/http'
+require 'constructor_modulos_playidea/main'
 
 module PlayIdea
   module ConstructorImagen
@@ -63,6 +64,12 @@ module PlayIdea
           )})"
         )
       end
+      @dialog.add_action_callback('createSkeleton') do |_context, payload|
+        plan = validate_metric_plan(payload)
+        next unless plan
+        @dialog.close
+        Sketchup.active_model.select_tool(SkeletonPlacementTool.new(plan))
+      end
       @dialog.show
     rescue StandardError => error
       UI.messagebox("No fue posible abrir el constructor desde imágenes:\n#{error.message}")
@@ -107,6 +114,104 @@ module PlayIdea
       end
     rescue StandardError
       false
+    end
+
+    def validate_metric_plan(payload)
+      zones = payload['zones'] if payload.is_a?(Hash)
+      unless zones.is_a?(Array) && zones.length.between?(1, 20)
+        UI.messagebox('La planta métrica no contiene zonas válidas.')
+        return nil
+      end
+      cleaned = zones.map do |zone|
+        kind = zone['kind'].to_s
+        values = %w[x y width depth levels].map { |key| zone[key].to_i }
+        unless %w[modular special accessory].include?(kind) && values[0].between?(0, 30) && values[1].between?(0, 30) && values[2..4].all? { |value| value.between?(1, 20) }
+          UI.messagebox("Zona inválida: #{zone['label']}")
+          return nil
+        end
+        {
+          id: zone['id'].to_s,
+          label: zone['label'].to_s,
+          kind: kind,
+          x: values[0], y: values[1], width: values[2], depth: values[3], levels: values[4]
+        }
+      end
+      { module_internal_mm: payload['module_internal_mm'].to_f, zones: cleaned }
+    end
+
+    def create_placeholder(zone, origin, module_mm)
+      model = Sketchup.active_model
+      group = model.active_entities.add_group
+      group.name = "PRELIMINAR-#{zone[:id].upcase}"
+      x0 = origin.x + zone[:x] * module_mm.mm
+      y0 = origin.y + zone[:y] * module_mm.mm
+      z0_mm = zone[:id] == 'puente' ? module_mm * 2.0 : 0.0
+      z0 = origin.z + z0_mm.mm
+      width = zone[:width] * module_mm.mm
+      depth = zone[:depth] * module_mm.mm
+      height_mm = zone[:kind] == 'accessory' ? 100.0 : zone[:levels] * module_mm
+      points = [
+        Geom::Point3d.new(x0, y0, z0), Geom::Point3d.new(x0 + width, y0, z0),
+        Geom::Point3d.new(x0 + width, y0 + depth, z0), Geom::Point3d.new(x0, y0 + depth, z0)
+      ]
+      face = group.entities.add_face(points)
+      face.pushpull(height_mm.mm)
+      material_name = "PlayIdea Preliminar #{zone[:kind]}"
+      material = model.materials[material_name] || model.materials.add(material_name)
+      material.color = zone[:kind] == 'special' ? Sketchup::Color.new(229, 107, 24) : Sketchup::Color.new(96, 168, 50)
+      group.material = material
+      group.set_attribute('playidea_imagen', 'provisional', true)
+      group.set_attribute('playidea_imagen', 'zone_id', zone[:id])
+      group
+    end
+
+    class SkeletonPlacementTool
+      def initialize(plan)
+        @plan = plan
+        @input = Sketchup::InputPoint.new
+      end
+
+      def activate
+        Sketchup.set_status_text('Haz clic para colocar el origen de la planta preliminar.', SB_PROMPT)
+      end
+
+      def onMouseMove(_flags, x, y, view)
+        @input.pick(view, x, y)
+        view.invalidate
+      end
+
+      def onLButtonDown(_flags, x, y, view)
+        @input.pick(view, x, y)
+        return unless @input.valid?
+        module_mm = @plan[:module_internal_mm]
+        @plan[:zones].each do |zone|
+          zone_origin = Geom::Point3d.new(
+            @input.position.x + zone[:x] * module_mm.mm,
+            @input.position.y + zone[:y] * module_mm.mm,
+            @input.position.z
+          )
+          if zone[:kind] == 'modular'
+            params = {
+              modules_x: zone[:width], modules_y: zone[:depth], modules_z: zone[:levels],
+              spacing_x_mm: module_mm, spacing_y_mm: module_mm, spacing_z_mm: module_mm,
+              color: 'Azul', code: "PRE-#{zone[:id].upcase}", connectors: false, padding: false
+            }
+            PlayIdea::ConstructorModulos.create_module(params, zone_origin)
+          else
+            PlayIdea::ConstructorImagen.create_placeholder(zone, @input.position, module_mm)
+          end
+        end
+        Sketchup.active_model.select_tool(nil)
+        UI.messagebox('Estructura preliminar creada. Revisa proporciones y posiciones; todavía no es el juego final.')
+      rescue StandardError => error
+        UI.messagebox("No fue posible crear el esqueleto:\n#{error.message}")
+        puts error.full_message
+        Sketchup.active_model.select_tool(nil)
+      end
+
+      def draw(view)
+        @input.draw(view) if @input.valid?
+      end
     end
 
     unless file_loaded?(__FILE__)

@@ -8,7 +8,7 @@ module PlayIdea
       'constructor_imagen_playidea/main'
     )
     EXTENSION.description = 'Analiza varias vistas de un juego y prepara una planta modular editable.'
-    EXTENSION.version = '0.7.0'
+    EXTENSION.version = '0.8.0'
     EXTENSION.creator = 'Play Idea'
     Sketchup.register_extension(EXTENSION, true)
   end

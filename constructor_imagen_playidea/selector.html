@@ -163,12 +163,16 @@
       if(!plan||!plan.zones.length)return;
       state.metricPlan=plan;
       const rows=plan.zones.map(zone=>`<tr><td>${zone.label}</td>${['x','y','width','depth','levels'].map(key=>`<td><input type="number" min="${key==='x'||key==='y'?0:1}" step="1" data-zone="${zone.id}" data-key="${key}" value="${zone[key]}"></td>`).join('')}</tr>`).join('');
-      $('metricPlan').innerHTML=`<b>Cuadrícula métrica editable</b><div id="metricDrawing"></div><table class="metric-table"><thead><tr><th>Zona</th><th>X</th><th>Y</th><th>Ancho</th><th>Fondo</th><th>Niveles</th></tr></thead><tbody>${rows}</tbody></table><button class="apply-grid" id="applyGrid">Aplicar cambios a la planta</button><div class="topology-note">Cada cuadro mide ${plan.module_internal_mm} mm internamente. Estos valores son provisionales y deben validarse antes de crear geometría.</div>`;
+      $('metricPlan').innerHTML=`<b>Cuadrícula métrica editable</b><div id="metricDrawing"></div><table class="metric-table"><thead><tr><th>Zona</th><th>X</th><th>Y</th><th>Ancho</th><th>Fondo</th><th>Niveles</th></tr></thead><tbody>${rows}</tbody></table><button class="apply-grid" id="applyGrid">Aplicar cambios a la planta</button><button id="createSkeleton">Crear estructura preliminar en SketchUp</button><div class="topology-note">Cada cuadro mide ${plan.module_internal_mm} mm internamente. Estos valores son provisionales y deben validarse antes de crear geometría final.</div>`;
       $('metricPlan').style.display='block';
       drawMetricPlan();
       $('applyGrid').onclick=()=>{
         $('metricPlan').querySelectorAll('input[data-zone]').forEach(input=>{const zone=state.metricPlan.zones.find(item=>item.id===input.dataset.zone);zone[input.dataset.key]=Math.max(+(input.min||0),Math.round(+input.value||0))});
         drawMetricPlan();showStatus('Cuadrícula provisional actualizada en esta sesión.');
+      };
+      $('createSkeleton').onclick=()=>{
+        $('applyGrid').click();
+        if(confirm('Se crearán módulos estructurales y marcadores provisionales. ¿Continuar?'))sketchup.createSkeleton(state.metricPlan);
       };
     }
     function drawMetricPlan(){
