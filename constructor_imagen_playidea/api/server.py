@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import base64
+import binascii
 import uuid
 from typing import Annotated
 
@@ -8,9 +10,10 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.2.1")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.2.2")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,7 +24,18 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.2.1"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.2.2"}
+
+
+class EncodedImage(BaseModel):
+    name: str
+    data_url: str
+
+
+class JsonAnalysisRequest(BaseModel):
+    case_id: str = "sin_codigo"
+    module_internal_mm: float = 1168.4
+    images: list[EncodedImage]
 
 
 def classify_angle(angle_deg: float) -> str:
@@ -108,6 +122,40 @@ def analyze_image(raw: bytes, filename: str) -> dict:
     }
 
 
+def analysis_response(views: list[dict], case_id: str, module_internal_mm: float) -> dict:
+    totals = {key: sum(view["line_counts"][key] for view in views) for key in ("horizontal", "vertical", "diagonal")}
+    return {
+        "analysis_id": str(uuid.uuid4()),
+        "case_id": case_id,
+        "module_internal_mm": module_internal_mm,
+        "image_count": len(views),
+        "stage": "geometric_features",
+        "totals": totals,
+        "views": views,
+        "next_stage": "calibrate_multiview_grid",
+    }
+
+
+@app.post("/analyze-json")
+def analyze_json(payload: JsonAnalysisRequest) -> dict:
+    if not 1 <= len(payload.images) <= 8:
+        raise HTTPException(status_code=422, detail="Se requieren entre 1 y 8 imágenes.")
+    if payload.module_internal_mm <= 0:
+        raise HTTPException(status_code=422, detail="El módulo interior debe ser mayor que cero.")
+
+    views = []
+    for image in payload.images:
+        try:
+            encoded = image.data_url.split(",", 1)[1] if "," in image.data_url else image.data_url
+            raw = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error):
+            raise HTTPException(status_code=422, detail=f"Los datos de {image.name} no son Base64 válido.")
+        if len(raw) > 25 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"{image.name} supera 25 MB.")
+        views.append(analyze_image(raw, image.name or "imagen"))
+    return analysis_response(views, payload.case_id, payload.module_internal_mm)
+
+
 @app.post("/analyze")
 async def analyze(
     images: Annotated[list[UploadFile], File(...)],
@@ -126,14 +174,4 @@ async def analyze(
             raise HTTPException(status_code=413, detail=f"{image.filename} supera 25 MB.")
         views.append(analyze_image(raw, image.filename or "imagen"))
 
-    totals = {key: sum(view["line_counts"][key] for view in views) for key in ("horizontal", "vertical", "diagonal")}
-    return {
-        "analysis_id": str(uuid.uuid4()),
-        "case_id": case_id,
-        "module_internal_mm": module_internal_mm,
-        "image_count": len(views),
-        "stage": "geometric_features",
-        "totals": totals,
-        "views": views,
-        "next_stage": "calibrate_multiview_grid",
-    }
+    return analysis_response(views, case_id, module_internal_mm)

@@ -81,33 +81,39 @@
         const img=document.createElement('img');img.alt=file.name;
         const caption=document.createElement('span');caption.textContent=file.name;
         box.append(img,caption);$('previews').appendChild(box);
-        const reader=new FileReader();reader.onload=()=>{img.src=reader.result};reader.readAsDataURL(file.blob);
+        img.src=file.dataUrl;
       });
       $('imageCount').textContent=state.files.length===0?'Todavía no hay imágenes agregadas.':`${state.files.length} imagen${state.files.length===1?'':'es'} agregada${state.files.length===1?'':'s'} (máximo 8).`;
       $('prepare').disabled=state.files.length<1||!state.apiReady;
     }
-    $('images').addEventListener('change',event=>{
+    function readAsDataURL(file){
+      return new Promise((resolve,reject)=>{
+        const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error||new Error('No se pudo leer la imagen.'));reader.readAsDataURL(file);
+      });
+    }
+    $('images').addEventListener('change',async event=>{
       const incoming=Array.from(event.target.files||[]);
       const known=new Set(state.files.map(file=>`${file.name}|${file.size}|${file.lastModified}`));
-      incoming.forEach(file=>{
+      $('prepare').disabled=true;
+      showStatus('Copiando las imágenes a memoria local…','working');
+      for(const file of incoming){
         const key=`${file.name}|${file.size}|${file.lastModified}`;
         if(!known.has(key)&&state.files.length<8){
-          state.files.push({name:file.name,type:file.type,size:file.size,lastModified:file.lastModified,blob:file.slice(0,file.size,file.type||'application/octet-stream')});
+          const dataUrl=await readAsDataURL(file);
+          state.files.push({name:file.name,type:file.type,size:file.size,lastModified:file.lastModified,dataUrl});
           known.add(key);
         }
-      });
+      }
       event.target.value='';
       renderPreviews();
+      showStatus('Imágenes listas para el análisis local.');
     });
     $('prepare').addEventListener('click',async()=>{
-      const form=new FormData();
-      state.files.forEach(file=>form.append('images',file.blob,file.name));
-      form.append('case_id',state.reference.id);
-      form.append('module_internal_mm',state.reference.module_internal_mm);
+      const payload={case_id:state.reference.id,module_internal_mm:state.reference.module_internal_mm,images:state.files.map(file=>({name:file.name,data_url:file.dataUrl}))};
       $('prepare').disabled=true;$('result').style.display='none';
       showStatus(`Analizando ${state.files.length} vista${state.files.length===1?'':'s'} con OpenCV…`,'working');
       try{
-        const response=await fetch(`${state.reference.api_url}/analyze`,{method:'POST',body:form});
+        const response=await fetch(`${state.reference.api_url}/analyze-json`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
         const result=await response.json();
         if(!response.ok){
           const detail=typeof result.detail==='string'?result.detail:JSON.stringify(result.detail||result);
