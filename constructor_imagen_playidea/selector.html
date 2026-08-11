@@ -20,7 +20,7 @@
     #status.error{background:#fdeaea;color:#8b1d1d}#status.working{background:#eaf3fb;color:#174d7b}
     .spinner{display:inline-block;width:13px;height:13px;margin-right:7px;border:2px solid #8fb2d2;border-top-color:#174d7b;border-radius:50%;vertical-align:-2px;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
     #result{display:none;margin-top:10px;padding:10px;max-height:220px;overflow:auto;border-radius:6px;background:#152536;color:#d7ecff;font:11px/1.45 monospace;white-space:pre-wrap}
-    #analysisPreviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:12px}.analysis-view{overflow:hidden;border:1px solid #b9c7d4;border-radius:7px;background:#fff}.analysis-view img{display:block;width:100%;height:auto}.analysis-view div{padding:8px;font-size:11px;line-height:1.4}
+    #analysisPreviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px;margin-top:12px}.analysis-view{overflow:hidden;border:1px solid #b9c7d4;border-radius:7px;background:#fff}.post-canvas{position:relative;background:#172334;touch-action:none}.post-canvas img{display:block;width:100%;height:auto}.post-canvas svg{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}.post-line{stroke:#ffb000;stroke-width:5;stroke-dasharray:10 6;vector-effect:non-scaling-stroke}.post-line.confirmed{stroke:#24d06f;stroke-dasharray:none}.post-hit{stroke:transparent;stroke-width:18;vector-effect:non-scaling-stroke;cursor:pointer}.analysis-caption{padding:8px;font-size:11px;line-height:1.4}.editor-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;padding:0 8px 8px}.editor-actions button{padding:8px;font-size:10px}.editor-actions .confirm{background:#24834c}.editor-actions .clear{background:#8b3c32}.analysis-view.confirmed{border:3px solid #24a65d}
     #topology{display:none;margin-top:12px;padding:10px;border:1px solid #b9c7d4;border-radius:8px;background:#f8fbfe}#topology svg{display:block;width:100%;height:auto}.topology-note{font-size:11px;color:#526577;margin-top:6px}
     #metricPlan{display:none;margin-top:12px;padding:12px;border:1px solid #b9c7d4;border-radius:8px;background:white}#metricPlan svg{width:100%;max-height:520px}.metric-table{width:100%;border-collapse:collapse;font-size:11px}.metric-table th,.metric-table td{padding:4px;border-bottom:1px solid #dce4eb;text-align:center}.metric-table input{width:58px;padding:4px}.apply-grid{margin-top:8px;background:#1976a8}
     .warning{padding:10px;border-left:4px solid #e6a318;background:#fff7df;color:#604900;font-size:12px;line-height:1.45}
@@ -52,7 +52,7 @@
     </section>
   </main>
   <script>
-    const state={reference:null,files:[],apiReady:false};
+    const state={reference:null,files:[],apiReady:false,postEdits:[],analysis:null};
     const $=id=>document.getElementById(id);
     window.loadReference=data=>{
       state.reference=data;
@@ -126,25 +126,57 @@
           throw new Error(detail||`Error HTTP ${response.status}`);
         }
         showStatus(`Análisis ${result.analysis_id.slice(0,8)} terminado: ${result.image_count} vistas, ${result.totals.vertical} líneas verticales, ${result.totals.horizontal} horizontales y ${result.totals.diagonal} diagonales.`);
-        result.views.forEach((view,index)=>{
-          const card=document.createElement('div');card.className='analysis-view';
-          const img=document.createElement('img');img.src=view.overlay_data_url;img.alt=`Análisis vista ${index+1}`;
-          const bluePosts=view.post_candidates.filter(post=>post.structural_blue).length;
-          const bays=view.projected_grid_groups.reduce((sum,group)=>sum+group.provisional_bay_count,0);
-          const text=document.createElement('div');text.textContent=`Vista ${index+1}: ${view.post_candidates.length} candidatos, ${bluePosts} con señal azul estructural; ${view.projected_grid_groups.length} filas y ${bays} crujías provisionales; ${view.discarded_border_segments} segmentos de marco descartados.`;
-          card.append(img,text);$('analysisPreviews').appendChild(card);
-        });
+        state.analysis=result;state.postEdits=[];
+        result.views.forEach((view,index)=>renderPostEditor(view,index));
         const mv=result.multiview;
         const totalInliers=mv.pairs.reduce((sum,pair)=>sum+pair.geometric_inliers,0);
         $('multiviewSummary').style.display='block';
         $('multiviewSummary').innerHTML=`<b>Cruce multivista</b>Vista frontal de referencia: ${mv.front_anchor_view}. Vista de profundidad: ${mv.depth_anchor_view}. ${mv.strong_pair_count} de ${mv.pair_count} pares fuertes; ${totalInliers} correspondencias geométricas confirmadas. Estado: ${mv.status}.`;
-        renderTopology(result.topology);
-        renderMetricPlan(result.metric_plan);
+        showStatus('Marca los postes en cada vista: arrastra de la punta superior a la base. Pulsa una línea para borrarla y confirma cada vista.','working');
         const compact={...result,views:result.views.map(view=>{const copy={...view};delete copy.overlay_data_url;return copy})};
         $('result').textContent=JSON.stringify(compact,null,2);$('result').style.display='block';
       }catch(error){showStatus(`No fue posible analizar las imágenes: ${error.message}`,'error')}
       finally{$('prepare').disabled=state.files.length<1||!state.apiReady}
     });
+    function renderPostEditor(view,index){
+      const source=state.files[index];
+      const sx=view.analysis_size.width/view.original_size.width,sy=view.analysis_size.height/view.original_size.height;
+      const marks=view.post_candidates.filter(post=>post.structural_blue).map(post=>({x:post.x_px,y1:post.top_y_px,y2:post.bottom_y_px,automatic:true}));
+      const edit={marks,confirmed:false,width:view.analysis_size.width,height:view.analysis_size.height};state.postEdits[index]=edit;
+      const card=document.createElement('div');card.className='analysis-view';card.dataset.view=index;
+      const canvas=document.createElement('div');canvas.className='post-canvas';
+      const img=document.createElement('img');img.src=source.dataUrl;img.alt=`Vista ${index+1}`;
+      const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox',`0 0 ${edit.width} ${edit.height}`);svg.setAttribute('preserveAspectRatio','none');
+      canvas.append(img,svg);
+      const caption=document.createElement('div');caption.className='analysis-caption';
+      caption.textContent=`Vista ${index+1}: naranja = sugerencia automática. Arrastra verticalmente para agregar; pulsa una línea para eliminarla.`;
+      const actions=document.createElement('div');actions.className='editor-actions';
+      const accept=document.createElement('button');accept.textContent='Aceptar sugerencias';
+      const clear=document.createElement('button');clear.className='clear';clear.textContent='Limpiar';
+      const confirm=document.createElement('button');confirm.className='confirm';confirm.textContent='Confirmar vista';
+      actions.append(accept,clear,confirm);card.append(canvas,caption,actions);$('analysisPreviews').appendChild(card);
+      const redraw=()=>{
+        svg.innerHTML='';
+        edit.marks.forEach((mark,markIndex)=>{
+          const line=document.createElementNS(svg.namespaceURI,'line');line.setAttribute('x1',mark.x);line.setAttribute('x2',mark.x);line.setAttribute('y1',mark.y1);line.setAttribute('y2',mark.y2);line.setAttribute('class',`post-line${!mark.automatic?' confirmed':''}`);
+          const hit=line.cloneNode();hit.setAttribute('class','post-hit');hit.addEventListener('pointerdown',event=>{event.stopPropagation();edit.marks.splice(markIndex,1);edit.confirmed=false;card.classList.remove('confirmed');redraw()});
+          svg.append(line,hit);
+        });
+      };
+      const point=event=>{const box=svg.getBoundingClientRect();return{x:(event.clientX-box.left)*edit.width/box.width,y:(event.clientY-box.top)*edit.height/box.height}};
+      let start=null;
+      svg.addEventListener('pointerdown',event=>{start=point(event);svg.setPointerCapture(event.pointerId)});
+      svg.addEventListener('pointerup',event=>{if(!start)return;const end=point(event);if(Math.abs(end.y-start.y)>edit.height*.04){edit.marks.push({x:(start.x+end.x)/2,y1:Math.min(start.y,end.y),y2:Math.max(start.y,end.y),automatic:false});edit.confirmed=false;card.classList.remove('confirmed');redraw()}start=null});
+      accept.onclick=()=>{edit.marks.forEach(mark=>mark.automatic=false);redraw()};
+      clear.onclick=()=>{edit.marks=[];edit.confirmed=false;card.classList.remove('confirmed');redraw()};
+      confirm.onclick=()=>{if(edit.marks.length<2){showStatus(`La vista ${index+1} necesita al menos dos postes.`,'error');return}edit.marks.forEach(mark=>mark.automatic=false);edit.confirmed=true;card.classList.add('confirmed');redraw();checkAllViewsConfirmed()};
+      redraw();
+    }
+    function checkAllViewsConfirmed(){
+      if(!state.postEdits.length||!state.postEdits.every(view=>view.confirmed)){showStatus('Vista guardada. Confirma las demás vistas.');return}
+      showStatus('Postes confirmados en todas las vistas. La siguiente fase relacionará los mismos postes entre vistas.');
+      $('multiviewSummary').innerHTML+='<br><b>Fase 1 completa:</b> marcas manuales confirmadas. La creación 3D permanece bloqueada hasta resolver correspondencias.';
+    }
     function renderTopology(plan){
       if(!plan||!plan.nodes.length)return;
       const byId=Object.fromEntries(plan.nodes.map(node=>[node.id,node]));
