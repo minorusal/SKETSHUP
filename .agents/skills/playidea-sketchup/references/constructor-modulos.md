@@ -105,6 +105,15 @@ Flujo esperado:
 5. Pasar el contrato completo a una fachada compartida del Constructor.
 6. Usar bloques de marcador solo para subsistemas todavía no implementados y etiquetarlos claramente como provisionales; nunca presentarlos como juego terminado.
 
+### Aprendizaje del detector
+
+- No confundir coincidencias ORB generales con correspondencias de postes. Las primeras solo califican pares de vistas; las segundas necesitan identidad compartida (`P1`, `P2`, etc.).
+- Guardar localmente cada corrección confirmada como ejemplo: imágenes originales, dimensiones de análisis, punta/base de cada poste, vistas ancla y correspondencias.
+- Mantener coordenadas en el sistema de la imagen de análisis e incluir sus dimensiones para poder normalizarlas durante entrenamiento.
+- Nunca entrenar con sugerencias automáticas sin confirmar. El dataset debe contener únicamente postes aceptados, agregados o corregidos por el usuario.
+- Empezar aprendiendo una sola clase: poste estructural vertical. Agregar tubos horizontales, conectores y accesorios como clases separadas después de validar esta primera clase.
+- Preferir generar ejemplos sintéticos desde modelos SketchUp conocidos, proyectando sus tubos con la cámara, para ampliar el dataset sin etiquetado manual repetitivo.
+
 ## Verificación mínima
 
 - `ruby -c` en loaders y archivos Ruby modificados.

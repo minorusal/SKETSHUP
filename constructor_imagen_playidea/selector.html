@@ -184,7 +184,7 @@
     function renderCorrespondence(){
       const mv=state.analysis.multiview,leftIndex=mv.front_anchor_view-1,rightIndex=mv.depth_anchor_view-1;
       const panel=$('correspondence');panel.style.display='block';
-      panel.innerHTML=`<b>Fase 2 · Correspondencia de postes</b><div class="topology-note">Pulsa un poste en la vista ${leftIndex+1} y después el mismo poste en la vista ${rightIndex+1}. Repite con al menos cuatro postes.</div><div class="pair-grid"><div><b>Vista ${leftIndex+1} · frontal</b><div class="pair-view" id="pairLeft"></div></div><div><b>Vista ${rightIndex+1} · profundidad</b><div class="pair-view" id="pairRight"></div></div></div><div class="pair-summary" id="pairSummary"></div><div class="pair-actions"><button class="clear" id="clearPairs">Borrar correspondencias</button><button id="finishPairs" disabled>Confirmar correspondencias</button></div>`;
+      panel.innerHTML=`<b>Fase 2 · Correspondencia de postes</b><div class="topology-note">Pulsa un poste en la vista ${leftIndex+1} y después el mismo poste en la vista ${rightIndex+1}. Repite con al menos cuatro postes.</div><div class="pair-grid"><div><b>Vista ${leftIndex+1} · frontal</b><div class="pair-view" id="pairLeft"></div></div><div><b>Vista ${rightIndex+1} · profundidad</b><div class="pair-view" id="pairRight"></div></div></div><div class="pair-summary" id="pairSummary"></div><div class="pair-actions"><button class="clear" id="clearPairs">Borrar correspondencias</button><button id="finishPairs" disabled>Guardar ejemplo para aprendizaje</button></div>`;
       const drawSide=(containerId,viewIndex,side)=>{
         const edit=state.postEdits[viewIndex],container=$(containerId),img=document.createElement('img');img.src=state.files[viewIndex].dataUrl;
         const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox',`0 0 ${edit.width} ${edit.height}`);svg.setAttribute('preserveAspectRatio','none');container.append(img,svg);
@@ -199,7 +199,7 @@
       $('pairSummary').textContent=`${state.pairs.length} correspondencia${state.pairs.length===1?'':'s'} creada${state.pairs.length===1?'':'s'}. ${state.selectedLeft===null?'Selecciona primero en la vista frontal.':'Ahora selecciona el mismo poste en la vista de profundidad.'}`;
       $('finishPairs').disabled=state.pairs.length<4;
       $('clearPairs').onclick=()=>{state.pairs=[];state.selectedLeft=null;renderCorrespondence()};
-      $('finishPairs').onclick=()=>{showStatus(`${state.pairs.length} postes emparejados. Fase 2 completa; ya podemos calcular posición y altura en la siguiente fase.`);$('finishPairs').disabled=true};
+      $('finishPairs').onclick=saveTrainingExample;
     }
     function choosePairPost(side,markIndex){
       if(side==='left'){
@@ -210,6 +210,23 @@
       if(state.pairs.some(pair=>pair.right===markIndex)){showStatus('Ese poste de profundidad ya está emparejado.','error');return}
       const colors=['#ff3b30','#34c759','#007aff','#ff9500','#af52de','#00a8a8','#d63384','#795548'];
       const number=state.pairs.length+1;state.pairs.push({id:`P${number}`,left:state.selectedLeft,right:markIndex,color:colors[(number-1)%colors.length]});state.selectedLeft=null;renderCorrespondence();
+    }
+    async function saveTrainingExample(){
+      const mv=state.analysis.multiview,leftIndex=mv.front_anchor_view-1,rightIndex=mv.depth_anchor_view-1;
+      const payload={
+        analysis_id:state.analysis.analysis_id,module_internal_mm:state.reference.module_internal_mm,
+        images:state.files.map(file=>({name:file.name,data_url:file.dataUrl})),
+        views:state.postEdits.map((view,index)=>({view_index:index+1,image_width:view.width,image_height:view.height,posts:view.marks.map((mark,postIndex)=>({post_index:postIndex,x:mark.x,top_y:mark.y1,bottom_y:mark.y2,confirmed:true}))})),
+        anchor_views:{front_view:leftIndex+1,depth_view:rightIndex+1},
+        correspondences:state.pairs.map(pair=>({id:pair.id,front_post_index:pair.left,depth_post_index:pair.right}))
+      };
+      showStatus('Guardando imágenes y correcciones en el dataset local…','working');$('finishPairs').disabled=true;
+      try{
+        const response=await fetch(`${state.reference.api_url}/training-example`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const result=await response.json();if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:JSON.stringify(result.detail||result));
+        showStatus(`Ejemplo ${result.example_id} guardado para aprendizaje. Siguiente fase: calcular posición y altura.`);
+        $('pairSummary').innerHTML+=`<br><b>Guardado localmente:</b> ${result.path}`;
+      }catch(error){showStatus(`No fue posible guardar el ejemplo: ${error.message}`,'error');$('finishPairs').disabled=false}
     }
     function renderTopology(plan){
       if(!plan||!plan.nodes.length)return;

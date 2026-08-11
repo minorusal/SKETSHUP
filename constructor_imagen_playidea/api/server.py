@@ -4,6 +4,8 @@ import math
 import base64
 import binascii
 import uuid
+import json
+from pathlib import Path
 from typing import Annotated
 
 import cv2
@@ -36,6 +38,59 @@ class JsonAnalysisRequest(BaseModel):
     case_id: str = "sin_codigo"
     module_internal_mm: float = 1168.4
     images: list[EncodedImage]
+
+
+class TrainingExampleRequest(BaseModel):
+    analysis_id: str
+    module_internal_mm: float = 1168.4
+    images: list[EncodedImage]
+    views: list[dict]
+    anchor_views: dict
+    correspondences: list[dict]
+
+
+def training_dataset_dir() -> Path:
+    return Path.home() / "Library" / "Application Support" / "PlayIdea" / "constructor_imagen_dataset"
+
+
+@app.post("/training-example")
+def save_training_example(payload: TrainingExampleRequest) -> dict:
+    if len(payload.images) != len(payload.views):
+        raise HTTPException(status_code=422, detail="Cada imagen necesita sus anotaciones de postes.")
+    if len(payload.correspondences) < 4:
+        raise HTTPException(status_code=422, detail="Se requieren al menos cuatro correspondencias confirmadas.")
+
+    example_id = f"ejemplo_{uuid.uuid4().hex[:12]}"
+    example_dir = training_dataset_dir() / example_id
+    example_dir.mkdir(parents=True, exist_ok=False)
+    image_records = []
+    try:
+        for index, image in enumerate(payload.images, start=1):
+            encoded = image.data_url.split(",", 1)[1] if "," in image.data_url else image.data_url
+            raw = base64.b64decode(encoded, validate=True)
+            suffix = Path(image.name).suffix.lower()
+            suffix = suffix if suffix in {".jpg", ".jpeg", ".png", ".webp"} else ".png"
+            filename = f"vista_{index:02d}{suffix}"
+            (example_dir / filename).write_bytes(raw)
+            image_records.append({"index": index, "original_name": image.name, "file": filename})
+
+        annotation = {
+            "schema_version": 1,
+            "example_id": example_id,
+            "analysis_id": payload.analysis_id,
+            "module_internal_mm": payload.module_internal_mm,
+            "images": image_records,
+            "views": payload.views,
+            "anchor_views": payload.anchor_views,
+            "correspondences": payload.correspondences,
+            "labels": {"post": "poste estructural vertical", "endpoint_order": ["top", "bottom"]},
+        }
+        (example_dir / "annotations.json").write_text(
+            json.dumps(annotation, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except (ValueError, binascii.Error, OSError) as error:
+        raise HTTPException(status_code=422, detail=f"No se pudo guardar el ejemplo: {error}")
+    return {"ok": True, "example_id": example_id, "path": str(example_dir)}
 
 
 def classify_angle(angle_deg: float) -> str:
