@@ -328,3 +328,28 @@ alrededor -`build_cinta_ring`/costuras-, herencia del diseño anterior
 donde la tapa era de vinil. Si el usuario confirma que ahora es
 plástico rígido de verdad -no vinil-, la cinta+costura de la tapa ya
 no tendría sentido físico y habría que quitarlas.
+
+### Estado final confirmado visualmente por el usuario -2026-08-11-
+
+La sección anterior quedó SUPERADA por pruebas reales en SketchUp. El
+usuario confirmó "qué bonito, ahora sí" después de estas correcciones;
+preservarlas como nueva referencia buena:
+
+- La tapa es una sola pieza plástica cerrada: cara exterior, cara
+  interior y pared alrededor del hueco del PVC.
+- El faldón baja exactamente 2" -50.8mm- sobre el cuerpo. Su radio
+  INTERIOR es `CYLINDER_RADIUS_MM + TAPA_CLEARANCE_MM`; el radio exterior
+  suma `TAPA_THICKNESS_MM`. No volver a aplicar la holgura al radio
+  exterior porque eso hace que la pared interior atraviese el cuerpo.
+- Toda la tapa -domo perforado Y faldón- usa `params[:stripe_hex]`, el
+  mismo color de las franjas. Ya NO usa el color de la lona.
+- Se eliminó `build_cinta_ring` y sus costuras: el aro horizontal hacía
+  que la tapa pareciera un sombrero. No volver a agregar una banda
+  horizontal independiente.
+- El PVC visible mide exactamente `CYLINDER_LENGTH_MM` -914.4mm-, de
+  `z=0` a `z=CYLINDER_LENGTH_MM`, sin sobresalir por ningún extremo.
+- Los 36 discos de foam reutilizan una sola definición perforada como
+  instancias, en vez de duplicar miles de caras en cada rodillo.
+- Verificación previa a la confirmación visual: `ruby -c` correcto;
+  harness matemático con tapa cerrada sin bordes abiertos, hueco libre,
+  faldón de 50.8mm, PVC de 914.4mm y 36 instancias de foam.
