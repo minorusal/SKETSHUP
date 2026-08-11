@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Constructor desde Imágenes</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#eef3f8;color:#172334;font-family:Arial,sans-serif}
+    header{padding:17px 21px;background:#123d70;color:#fff}h1{margin:0 0 5px;font-size:20px}header p{margin:0;font-size:12px;opacity:.85}
+    main{padding:18px}.card{margin-bottom:14px;padding:15px;background:#fff;border:1px solid #d7e0e9;border-radius:9px;box-shadow:0 2px 6px #1232}
+    h2{margin:0 0 10px;font-size:15px;color:#164f86}label{display:block;margin:8px 0 5px;font-size:12px;font-weight:bold}
+    input{width:100%;padding:9px;border:1px solid #aebdca;border-radius:6px}.facts{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+    .fact{padding:9px;background:#eaf3fb;border-radius:6px;font-size:12px}.fact b{display:block;color:#174d7b;margin-bottom:3px}
+    #previews{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:9px;margin-top:12px}
+    .preview{overflow:hidden;border:1px solid #cad5df;border-radius:7px;background:#f8fafc}.preview img{display:block;width:100%;height:105px;object-fit:cover}
+    .preview span{display:block;padding:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px}
+    ul{margin:6px 0 0;padding-left:20px;font-size:12px;line-height:1.55}.special{color:#8c5100}
+    button{width:100%;padding:12px;border:0;border-radius:7px;background:#e66c18;color:white;font-weight:bold;cursor:pointer}button:disabled{background:#9da9b2;cursor:not-allowed}
+    #status{display:none;margin-top:11px;padding:10px;border-radius:6px;background:#e8f7ed;color:#176332;font-size:12px}
+    .warning{padding:10px;border-left:4px solid #e6a318;background:#fff7df;color:#604900;font-size:12px;line-height:1.45}
+  </style>
+</head>
+<body>
+  <header><h1>Constructor de juegos desde imágenes</h1><p>Primera prueba: carga multivista y caso estructural Pi.03315</p></header>
+  <main>
+    <section class="card">
+      <h2>1. Datos confirmados</h2>
+      <div class="facts"><div class="fact"><b>Caso</b><span id="caseId">—</span></div><div class="fact"><b>Módulo interior</b><span id="moduleSize">—</span></div></div>
+    </section>
+    <section class="card">
+      <h2>2. Cargar las vistas</h2>
+      <label for="images">Selecciona las cuatro imágenes del mismo juego</label>
+      <input id="images" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+      <div id="previews"></div>
+    </section>
+    <section class="card">
+      <h2>3. Subensambles reconocidos en el caso</h2>
+      <ul id="zones"></ul>
+    </section>
+    <section class="card">
+      <div class="warning"><b>Alcance de esta versión:</b> comprueba que SketchUp abre el plugin, muestra varias imágenes y comunica sus metadatos a Ruby. Todavía no envía imágenes a una IA ni crea geometría.</div>
+      <button id="prepare" disabled>Preparar las vistas para análisis</button>
+      <div id="status"></div>
+    </section>
+  </main>
+  <script>
+    const state={reference:null,files:[]};
+    const $=id=>document.getElementById(id);
+    window.loadReference=data=>{
+      state.reference=data;
+      $('caseId').textContent=data.id;
+      $('moduleSize').textContent=`${data.module_internal_mm} mm (${(data.module_internal_mm/1000).toFixed(4)} m)`;
+      $('zones').innerHTML=data.zones.map(zone=>`<li class="${zone.specialized?'special':''}">${zone.label} — confianza ${Math.round(zone.confidence*100)}%${zone.specialized?' · generador especializado':''}</li>`).join('');
+    };
+    $('images').addEventListener('change',event=>{
+      state.files=Array.from(event.target.files||[]).slice(0,8);
+      $('previews').innerHTML='';
+      state.files.forEach(file=>{
+        const box=document.createElement('div');box.className='preview';
+        const img=document.createElement('img');img.alt=file.name;
+        const caption=document.createElement('span');caption.textContent=file.name;
+        box.append(img,caption);$('previews').appendChild(box);
+        const reader=new FileReader();reader.onload=()=>{img.src=reader.result};reader.readAsDataURL(file);
+      });
+      $('prepare').disabled=state.files.length<2;
+    });
+    $('prepare').addEventListener('click',()=>{
+      const images=state.files.map(file=>({name:file.name,type:file.type,size:file.size,last_modified:file.lastModified}));
+      $('prepare').disabled=true;
+      sketchup.prepareAnalysis({case_id:state.reference.id,module_internal_mm:state.reference.module_internal_mm,images});
+    });
+    window.analysisPrepared=result=>{
+      $('status').style.display='block';
+      $('status').textContent=`Correcto: ${result.image_count} vistas preparadas. ${result.message}`;
+      $('prepare').disabled=false;
+    };
+    document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
+  </script>
+</body>
+</html>
