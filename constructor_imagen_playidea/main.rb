@@ -10,19 +10,10 @@ module PlayIdea
     MODULE_INTERNAL_MM = 1168.4
     API_HOST = '127.0.0.1'.freeze
     API_PORT = 8765
-    REFERENCE_CASE = {
-      id: 'Pi.03315',
+    ANALYSIS_CASE = {
+      id: 'estructura_actual',
       module_internal_mm: MODULE_INTERNAL_MM,
-      status: 'reference_only',
-      zones: [
-        { id: 'jaula', label: 'Jaula rectangular de dos niveles', confidence: 0.92 },
-        { id: 'centro', label: 'Trampolines y obstáculos centrales', confidence: 0.86 },
-        { id: 'torre', label: 'Torre circular de red', confidence: 0.96, specialized: true },
-        { id: 'puente', label: 'Puente elevado con armadura', confidence: 0.94, specialized: true },
-        { id: 'tobogan', label: 'Tobogán verde abierto y ondulado', confidence: 0.98, specialized: true },
-        { id: 'cancha', label: 'Cancha pequeña de futbol', confidence: 0.91 },
-        { id: 'conexiones', label: 'Escaleras, plataformas y conexiones', confidence: 0.78 }
-      ]
+      status: 'structure_and_connectors_only'
     }.freeze
 
     def start
@@ -45,7 +36,7 @@ module PlayIdea
       @dialog.add_action_callback('ready') do |_context|
         api = start_local_api
         @dialog.execute_script(
-          "loadReference(#{JSON.generate(REFERENCE_CASE.merge(
+          "loadReference(#{JSON.generate(ANALYSIS_CASE.merge(
             api_url: "http://#{API_HOST}:#{API_PORT}",
             api_started: api[:ok],
             api_message: api[:message]
@@ -142,14 +133,7 @@ module PlayIdea
           x: values[0], y: values[1], width: values[2], depth: values[3], levels: values[4]
         }
       end
-      raw_options = payload['build_options'].is_a?(Hash) ? payload['build_options'] : {}
-      options = {
-        connectors: raw_options['connectors'] != false,
-        soleras: raw_options['soleras'] == true,
-        platforms: raw_options['platforms'] == true,
-        nets: raw_options['nets'] == true
-      }
-      { module_internal_mm: payload['module_internal_mm'].to_f, zones: cleaned, build_options: options }
+      { module_internal_mm: payload['module_internal_mm'].to_f, zones: cleaned }
     end
 
     def constructor_available?
@@ -225,35 +209,13 @@ module PlayIdea
               modules_x: zone[:width], modules_y: zone[:depth], modules_z: zone[:levels],
               spacing_x_mm: module_mm, spacing_y_mm: module_mm, spacing_z_mm: module_mm,
               color: 'Azul', code: "PRE-#{zone[:id].upcase}",
-              connectors: @plan[:build_options][:connectors], padding: false
+              connectors: true, padding: false
             }
-            structure = PlayIdea::ConstructorModulos.create_module(params, zone_origin)
-            model = Sketchup.active_model
-            if @plan[:build_options][:soleras]
-              model.start_operation('Agregar soleras preliminares', true)
-              solera_def = PlayIdea::ConstructorModulos.create_solera_definition(model, params[:color])
-              count = PlayIdea::ConstructorModulos.place_square_soleras(structure.entities, params, zone_origin, solera_def)
-              structure.set_attribute(PlayIdea::ConstructorModulos::DICTIONARY, 'solera_count', count)
-              model.commit_operation
-            end
-            if @plan[:build_options][:platforms]
-              model.start_operation('Agregar plataformas preliminares', true)
-              count = PlayIdea::ConstructorModulos.place_platforms(structure.entities, params, zone_origin, model)
-              structure.set_attribute(PlayIdea::ConstructorModulos::DICTIONARY, 'platform_count', count)
-              model.commit_operation
-            end
-            if @plan[:build_options][:nets]
-              model.start_operation('Agregar redes preliminares', true)
-              count = PlayIdea::ConstructorModulos.place_nets(structure.entities, params, zone_origin, model)
-              structure.set_attribute(PlayIdea::ConstructorModulos::DICTIONARY, 'net_count', count)
-              model.commit_operation
-            end
-          else
-            PlayIdea::ConstructorImagen.create_placeholder(zone, @input.position, module_mm)
+            PlayIdea::ConstructorModulos.create_module(params, zone_origin)
           end
         end
         Sketchup.active_model.select_tool(nil)
-        UI.messagebox('Estructura preliminar creada. Revisa proporciones y posiciones; todavía no es el juego final.')
+        UI.messagebox('Estructura con tubos y conectores creada. Revisa ancho, fondo y niveles antes de continuar con accesorios.')
       rescue StandardError => error
         UI.messagebox("No fue posible crear el esqueleto:\n#{error.message}")
         puts error.full_message

@@ -41,11 +41,7 @@
       <div id="previews"></div>
     </section>
     <section class="card">
-      <h2>3. Referencia conocida (solo comparativa, no se copiará)</h2>
-      <ul id="zones"></ul>
-    </section>
-    <section class="card">
-      <div class="warning"><b>Alcance de esta versión:</b> OpenCV estima la cuadrícula modular desde postes y crujías del juego cargado. No identifica todavía por nombre toboganes, canchas u otros accesorios.</div>
+      <div class="warning"><b>Alcance actual:</b> copiar únicamente la estructura modular observada: tubos y conectores. Soleras, plataformas, redes, toboganes y demás accesorios se agregarán en fases posteriores.</div>
       <button id="prepare" disabled>Analizar vistas localmente</button>
       <div id="status"></div>
       <div id="analysisPreviews"></div>
@@ -60,9 +56,8 @@
     const $=id=>document.getElementById(id);
     window.loadReference=data=>{
       state.reference=data;
-      $('caseId').textContent=data.id;
+      $('caseId').textContent='Análisis nuevo';
       $('moduleSize').textContent=`${data.module_internal_mm} mm (${(data.module_internal_mm/1000).toFixed(4)} m)`;
-      $('zones').innerHTML=data.zones.map(zone=>`<li class="${zone.specialized?'special':''}">${zone.label} — confianza ${Math.round(zone.confidence*100)}%${zone.specialized?' · generador especializado':''}</li>`).join('');
       if(!data.api_started){showStatus(data.api_message||'La API local no pudo iniciarse.','error')}
       else{waitForApi()}
     };
@@ -156,14 +151,14 @@
       const colors={modular:'#1596d2',special:'#e56b18',accessory:'#60a832'};
       const edges=plan.edges.map(edge=>{const a=byId[edge.from],b=byId[edge.to];return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#60788d" stroke-width="1.2" stroke-dasharray="${edge.kind==='overhead'?'3 2':'none'}"/>`}).join('');
       const nodes=plan.nodes.map(node=>`<g><circle cx="${node.x}" cy="${node.y}" r="6" fill="${colors[node.kind]}" stroke="white" stroke-width="1.5"/><text x="${node.x}" y="${node.y+10}" text-anchor="middle" font-size="3.2" fill="#17324c">${node.label}</text><text x="${node.x}" y="${node.y+14}" text-anchor="middle" font-size="2.6" fill="#60788d">${node.levels} nivel${node.levels===1?'':'es'} · ${Math.round(node.confidence*100)}%</text></g>`).join('');
-      $('topology').innerHTML=`<b>Planta topológica provisional</b><svg viewBox="0 0 100 100" role="img" aria-label="Conexiones del juego">${edges}${nodes}</svg><div class="topology-note">Las conexiones están confirmadas por referencia manual y cruce multivista. Las posiciones todavía no representan distancias exactas; la siguiente fase las ajustará a la cuadrícula de ${plan.module_internal_mm} mm.</div>`;
+      $('topology').innerHTML=`<b>Estructura modular detectada</b><svg viewBox="0 0 100 100" role="img" aria-label="Estructura detectada">${edges}${nodes}</svg><div class="topology-note">Este resultado proviene solo de las imágenes cargadas. Confirma ancho, fondo y niveles en la tabla.</div>`;
       $('topology').style.display='block';
     }
     function renderMetricPlan(plan){
       if(!plan||!plan.zones.length){showStatus((plan&&plan.message)||'No se pudo detectar una cuadrícula estructural. Usa vistas más claras o edita la planta manualmente.','error');return}
       state.metricPlan=plan;
       const rows=plan.zones.map(zone=>`<tr><td>${zone.label}</td>${['x','y','width','depth','levels'].map(key=>`<td><input type="number" min="${key==='x'||key==='y'?0:1}" step="1" data-zone="${zone.id}" data-key="${key}" value="${zone[key]}"></td>`).join('')}</tr>`).join('');
-      $('metricPlan').innerHTML=`<b>Cuadrícula métrica editable</b><div id="metricDrawing"></div><table class="metric-table"><thead><tr><th>Zona</th><th>X</th><th>Y</th><th>Ancho</th><th>Fondo</th><th>Niveles</th></tr></thead><tbody>${rows}</tbody></table><div class="fact" style="margin-top:8px"><b>Elementos del constructor modular</b><label><input id="optConnectors" type="checkbox" checked style="width:auto"> Conectores</label><label><input id="optSoleras" type="checkbox" checked style="width:auto"> Soleras</label><label><input id="optPlatforms" type="checkbox" checked style="width:auto"> Plataformas</label><label><input id="optNets" type="checkbox" style="width:auto"> Redes de seguridad</label></div><button class="apply-grid" id="applyGrid">Aplicar cambios a la planta</button><button id="createSkeleton">Crear estructura preliminar en SketchUp</button><div class="topology-note">Cada cuadro mide ${plan.module_internal_mm} mm internamente. Se reutilizan los generadores confirmados del Constructor de Módulos.</div>`;
+      $('metricPlan').innerHTML=`<b>Cuadrícula estructural editable</b><div id="metricDrawing"></div><table class="metric-table"><thead><tr><th>Zona</th><th>X</th><th>Y</th><th>Ancho</th><th>Fondo</th><th>Niveles</th></tr></thead><tbody>${rows}</tbody></table><div class="fact" style="margin-top:8px"><b>Se construirán solamente</b>Tubos estructurales y conectores Play Idea.</div><button class="apply-grid" id="applyGrid">Aplicar cambios a la estructura</button><button id="createSkeleton">Crear tubos y conectores en SketchUp</button><div class="topology-note">Cada cuadro mide ${plan.module_internal_mm} mm internamente. Corrige las cantidades si la perspectiva ocultó algún poste.</div>`;
       $('metricPlan').style.display='block';
       drawMetricPlan();
       $('applyGrid').onclick=()=>{
@@ -172,8 +167,7 @@
       };
       $('createSkeleton').onclick=()=>{
         $('applyGrid').click();
-        state.metricPlan.build_options={connectors:$('optConnectors').checked,soleras:$('optSoleras').checked,platforms:$('optPlatforms').checked,nets:$('optNets').checked};
-        if(confirm('Se crearán módulos estructurales y marcadores provisionales. ¿Continuar?'))sketchup.createSkeleton(state.metricPlan);
+        if(confirm('Se crearán únicamente tubos estructurales y conectores. ¿Continuar?'))sketchup.createSkeleton(state.metricPlan);
       };
     }
     function drawMetricPlan(){
