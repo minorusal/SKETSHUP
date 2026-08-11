@@ -21,7 +21,7 @@ module PlayIdea
         return
       end
       model = Sketchup.active_model
-      unless model.active_entities.empty?
+      unless model.active_entities.length.zero?
         UI.messagebox(
           "El generador necesita un modelo vacío para que otras piezas no aparezcan en las imágenes.\n\n" \
           'Abre un archivo nuevo vacío y vuelve a ejecutar este comando.'

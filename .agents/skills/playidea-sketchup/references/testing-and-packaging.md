@@ -29,6 +29,7 @@ Los mocks simples pueden validar rangos, conteos y transformaciones, pero no gar
 - Verificar la versión objetivo de Ruby de SketchUp y evitar APIs más modernas sin comprobarlas.
 - Este proyecto ha usado Ruby 2.6 para pruebas locales; `Array#filter_map` no está disponible allí. Preferir construcciones compatibles como `select` + `map` cuando no haya certeza.
 - `ruby -c` confirma sintaxis, no disponibilidad de métodos ni comportamiento de la API SketchUp.
+- No asumir que las colecciones de SketchUp implementan todos los métodos de `Enumerable`: `Sketchup::Entities` no responde a `empty?`; usar `entities.length.zero?`.
 
 ## Prueba dentro de SketchUp
 
