@@ -57,9 +57,6 @@ def training_dataset_dir() -> Path:
 def save_training_example(payload: TrainingExampleRequest) -> dict:
     if len(payload.images) != len(payload.views):
         raise HTTPException(status_code=422, detail="Cada imagen necesita sus anotaciones de postes.")
-    if len(payload.correspondences) < 4:
-        raise HTTPException(status_code=422, detail="Se requieren al menos cuatro correspondencias confirmadas.")
-
     example_id = f"ejemplo_{uuid.uuid4().hex[:12]}"
     example_dir = training_dataset_dir() / example_id
     example_dir.mkdir(parents=True, exist_ok=False)
@@ -83,6 +80,7 @@ def save_training_example(payload: TrainingExampleRequest) -> dict:
             "views": payload.views,
             "anchor_views": payload.anchor_views,
             "correspondences": payload.correspondences,
+            "training_scope": "multiview_geometry" if len(payload.correspondences) >= 4 else "post_detection",
             "labels": {"post": "poste estructural vertical", "endpoint_order": ["top", "bottom"]},
         }
         (example_dir / "annotations.json").write_text(
