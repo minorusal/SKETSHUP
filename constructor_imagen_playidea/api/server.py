@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.4.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.5.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,7 +24,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.4.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.5.0"}
 
 
 class EncodedImage(BaseModel):
@@ -272,7 +272,56 @@ def analyze_image(raw: bytes, filename: str) -> dict:
     }
 
 
-def analysis_response(views: list[dict], case_id: str, module_internal_mm: float) -> dict:
+def multiview_correspondence(raw_images: list[tuple[bytes, str]], views: list[dict]) -> dict:
+    orb = cv2.ORB_create(nfeatures=2200, scaleFactor=1.2, nlevels=8)
+    features = []
+    for raw, _name in raw_images:
+        image = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        height, width = image.shape[:2]
+        image = image[round(height * 0.06):round(height * 0.90), round(width * 0.06):round(width * 0.94)]
+        scale = min(1.0, 1100.0 / max(image.shape[:2]))
+        if scale < 1.0:
+            image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        keypoints, descriptors = orb.detectAndCompute(image, None)
+        features.append((keypoints, descriptors))
+
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+    pairs = []
+    for left in range(len(features)):
+        for right in range(left + 1, len(features)):
+            left_points, left_desc = features[left]
+            right_points, right_desc = features[right]
+            good, inliers = [], 0
+            if left_desc is not None and right_desc is not None:
+                for match_pair in matcher.knnMatch(left_desc, right_desc, k=2):
+                    if len(match_pair) == 2 and match_pair[0].distance < 0.74 * match_pair[1].distance:
+                        good.append(match_pair[0])
+            if len(good) >= 8:
+                points_left = np.float32([left_points[match.queryIdx].pt for match in good])
+                points_right = np.float32([right_points[match.trainIdx].pt for match in good])
+                _fundamental, mask = cv2.findFundamentalMat(points_left, points_right, cv2.FM_RANSAC, 1.8, 0.995)
+                inliers = int(mask.sum()) if mask is not None else 0
+            pairs.append({
+                "view_a": left + 1,
+                "view_b": right + 1,
+                "good_matches": len(good),
+                "geometric_inliers": inliers,
+                "confidence": round(min(0.98, inliers / 40.0), 2),
+            })
+    front_index = max(range(len(views)), key=lambda index: views[index]["line_counts"]["vertical"])
+    depth_index = max(range(len(views)), key=lambda index: views[index]["line_counts"]["diagonal"])
+    strong_pairs = [pair for pair in pairs if pair["geometric_inliers"] >= 12]
+    return {
+        "front_anchor_view": front_index + 1,
+        "depth_anchor_view": depth_index + 1,
+        "pair_count": len(pairs),
+        "strong_pair_count": len(strong_pairs),
+        "pairs": pairs,
+        "status": "ready_for_topology" if len(strong_pairs) >= 2 else "needs_manual_correspondence",
+    }
+
+
+def analysis_response(views: list[dict], case_id: str, module_internal_mm: float, multiview: dict) -> dict:
     totals = {key: sum(view["line_counts"][key] for view in views) for key in ("horizontal", "vertical", "diagonal")}
     return {
         "analysis_id": str(uuid.uuid4()),
@@ -282,7 +331,8 @@ def analysis_response(views: list[dict], case_id: str, module_internal_mm: float
         "stage": "geometric_features",
         "totals": totals,
         "views": views,
-        "next_stage": "calibrate_multiview_grid",
+        "multiview": multiview,
+        "next_stage": "build_topological_plan",
     }
 
 
@@ -294,6 +344,7 @@ def analyze_json(payload: JsonAnalysisRequest) -> dict:
         raise HTTPException(status_code=422, detail="El módulo interior debe ser mayor que cero.")
 
     views = []
+    raw_images = []
     for image in payload.images:
         try:
             encoded = image.data_url.split(",", 1)[1] if "," in image.data_url else image.data_url
@@ -303,7 +354,9 @@ def analyze_json(payload: JsonAnalysisRequest) -> dict:
         if len(raw) > 25 * 1024 * 1024:
             raise HTTPException(status_code=413, detail=f"{image.name} supera 25 MB.")
         views.append(analyze_image(raw, image.name or "imagen"))
-    return analysis_response(views, payload.case_id, payload.module_internal_mm)
+        raw_images.append((raw, image.name or "imagen"))
+    multiview = multiview_correspondence(raw_images, views)
+    return analysis_response(views, payload.case_id, payload.module_internal_mm, multiview)
 
 
 @app.post("/analyze")
@@ -318,10 +371,13 @@ async def analyze(
         raise HTTPException(status_code=422, detail="El módulo interior debe ser mayor que cero.")
 
     views = []
+    raw_images = []
     for image in images:
         raw = await image.read()
         if len(raw) > 25 * 1024 * 1024:
             raise HTTPException(status_code=413, detail=f"{image.filename} supera 25 MB.")
         views.append(analyze_image(raw, image.filename or "imagen"))
+        raw_images.append((raw, image.filename or "imagen"))
 
-    return analysis_response(views, case_id, module_internal_mm)
+    multiview = multiview_correspondence(raw_images, views)
+    return analysis_response(views, case_id, module_internal_mm, multiview)

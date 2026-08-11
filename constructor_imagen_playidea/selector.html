@@ -47,6 +47,7 @@
       <button id="prepare" disabled>Analizar vistas localmente</button>
       <div id="status"></div>
       <div id="analysisPreviews"></div>
+      <div id="multiviewSummary" class="fact" style="display:none;margin-top:12px"></div>
       <pre id="result"></pre>
     </section>
   </main>
@@ -114,6 +115,7 @@
       const payload={case_id:state.reference.id,module_internal_mm:state.reference.module_internal_mm,images:state.files.map(file=>({name:file.name,data_url:file.dataUrl}))};
       $('prepare').disabled=true;$('result').style.display='none';
       $('analysisPreviews').innerHTML='';
+      $('multiviewSummary').style.display='none';
       showStatus(`Analizando ${state.files.length} vista${state.files.length===1?'':'s'} con OpenCV…`,'working');
       try{
         const response=await fetch(`${state.reference.api_url}/analyze-json`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -131,6 +133,10 @@
           const text=document.createElement('div');text.textContent=`Vista ${index+1}: ${view.post_candidates.length} candidatos, ${bluePosts} con señal azul estructural; ${view.projected_grid_groups.length} filas y ${bays} crujías provisionales; ${view.discarded_border_segments} segmentos de marco descartados.`;
           card.append(img,text);$('analysisPreviews').appendChild(card);
         });
+        const mv=result.multiview;
+        const totalInliers=mv.pairs.reduce((sum,pair)=>sum+pair.geometric_inliers,0);
+        $('multiviewSummary').style.display='block';
+        $('multiviewSummary').innerHTML=`<b>Cruce multivista</b>Vista frontal de referencia: ${mv.front_anchor_view}. Vista de profundidad: ${mv.depth_anchor_view}. ${mv.strong_pair_count} de ${mv.pair_count} pares fuertes; ${totalInliers} correspondencias geométricas confirmadas. Estado: ${mv.status}.`;
         const compact={...result,views:result.views.map(view=>{const copy={...view};delete copy.overlay_data_url;return copy})};
         $('result').textContent=JSON.stringify(compact,null,2);$('result').style.display='block';
       }catch(error){showStatus(`No fue posible analizar las imágenes: ${error.message}`,'error')}
