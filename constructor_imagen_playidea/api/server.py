@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.7.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.9.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,7 +24,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.7.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.9.0"}
 
 
 class EncodedImage(BaseModel):
@@ -321,60 +321,93 @@ def multiview_correspondence(raw_images: list[tuple[bytes, str]], views: list[di
     }
 
 
-def build_topological_plan(case_id: str, module_internal_mm: float, multiview: dict) -> dict:
-    if case_id != "Pi.03315":
-        return {"status": "unsupported_case", "nodes": [], "edges": []}
-    nodes = [
-        {"id": "jaula", "label": "Jaula 2 niveles", "kind": "modular", "x": 16, "y": 34, "levels": 2, "confidence": 0.92},
-        {"id": "centro", "label": "Zona central", "kind": "modular", "x": 47, "y": 48, "levels": 2, "confidence": 0.84},
-        {"id": "torre", "label": "Torre circular", "kind": "special", "x": 78, "y": 22, "levels": 3, "confidence": 0.96},
-        {"id": "puente", "label": "Puente elevado", "kind": "special", "x": 51, "y": 15, "levels": 1, "confidence": 0.94},
-        {"id": "tobogan", "label": "Tobogán ondulado", "kind": "special", "x": 69, "y": 58, "levels": 1, "confidence": 0.98},
-        {"id": "cancha", "label": "Cancha", "kind": "accessory", "x": 76, "y": 82, "levels": 1, "confidence": 0.91},
-        {"id": "transiciones", "label": "Transiciones", "kind": "modular", "x": 34, "y": 72, "levels": 1, "confidence": 0.78},
-    ]
-    edges = [
-        {"from": "jaula", "to": "centro", "kind": "walkway", "confidence": 0.86},
-        {"from": "jaula", "to": "transiciones", "kind": "platform", "confidence": 0.82},
-        {"from": "transiciones", "to": "centro", "kind": "platform", "confidence": 0.88},
-        {"from": "centro", "to": "torre", "kind": "structure", "confidence": 0.80},
-        {"from": "centro", "to": "puente", "kind": "stairs", "confidence": 0.84},
-        {"from": "puente", "to": "torre", "kind": "elevated", "confidence": 0.95},
-        {"from": "centro", "to": "tobogan", "kind": "slide_entry", "confidence": 0.94},
-        {"from": "tobogan", "to": "cancha", "kind": "overhead", "confidence": 0.90},
-    ]
+def strongest_grid(view: dict) -> dict | None:
+    groups = view.get("projected_grid_groups", [])
+    return max(groups, key=lambda group: (group["post_count"], group["span_px"]), default=None)
+
+
+def inferred_levels(view: dict, grid: dict | None) -> int:
+    if not grid or grid["projected_step_px"] <= 0:
+        return 1
+    structural = [post for post in view["post_candidates"] if post["structural_blue"]]
+    if not structural:
+        return 1
+    median_height = float(np.median([post["span_px"] for post in structural]))
+    # En una proyección, la separación horizontal es la única escala local
+    # disponible. El resultado es provisional y queda editable en la UI.
+    return max(1, min(6, round(median_height / grid["projected_step_px"])))
+
+
+def build_metric_plan(module_internal_mm: float, views: list[dict], multiview: dict) -> dict:
+    front = views[multiview["front_anchor_view"] - 1]
+    depth = views[multiview["depth_anchor_view"] - 1]
+    front_grid = strongest_grid(front)
+    depth_grid = strongest_grid(depth)
+    if front_grid is None and depth_grid is None:
+        return {
+            "status": "insufficient_structural_signal",
+            "module_internal_mm": module_internal_mm,
+            "grid_width_modules": 0,
+            "grid_depth_modules": 0,
+            "zones": [],
+            "message": "No se detectó una cuadrícula estructural confiable; no se generó una plantilla de otro juego.",
+        }
+
+    primary = front_grid or depth_grid
+    width = max(1, int(primary["provisional_bay_count"]))
+    depth_count = int(depth_grid["provisional_bay_count"]) if depth_grid else 1
+    depth_count = max(1, depth_count)
+    levels = inferred_levels(front, front_grid)
+    confidence = round(min(primary["confidence"], 0.65), 2)
+    zone = {
+        "id": "estructura_detectada_1",
+        "label": "Estructura detectada 1",
+        "kind": "modular",
+        "x": 0,
+        "y": 0,
+        "width": width,
+        "depth": depth_count,
+        "levels": levels,
+        "confidence": confidence,
+        "source": "opencv_post_grid",
+    }
     return {
-        "status": "topology_ready" if multiview["status"] == "ready_for_topology" else "provisional",
-        "source": "manual_reference_plus_multiview",
+        "status": "editable_detected",
         "module_internal_mm": module_internal_mm,
-        "metric_embedding": "pending",
-        "nodes": nodes,
-        "edges": edges,
+        "grid_width_modules": width,
+        "grid_depth_modules": depth_count,
+        "zones": [zone],
+        "message": "Dimensiones estimadas desde postes y crujías; confirma la cuadrícula antes de construir.",
     }
 
 
-def build_metric_plan(case_id: str, module_internal_mm: float) -> dict:
-    if case_id != "Pi.03315":
-        return {"status": "unsupported_case", "zones": []}
+def build_topological_plan(module_internal_mm: float, metric_plan: dict, multiview: dict) -> dict:
+    zones = metric_plan["zones"]
+    if not zones:
+        return {"status": metric_plan["status"], "source": "opencv", "module_internal_mm": module_internal_mm, "nodes": [], "edges": []}
+    nodes = []
+    for index, zone in enumerate(zones):
+        nodes.append({
+            "id": zone["id"],
+            "label": zone["label"],
+            "kind": zone["kind"],
+            "x": 50 if len(zones) == 1 else 15 + index * 70 / max(1, len(zones) - 1),
+            "y": 50,
+            "levels": zone["levels"],
+            "confidence": zone.get("confidence", 0.45),
+        })
     return {
-        "status": "editable_provisional",
+        "status": "topology_detected" if multiview["status"] == "ready_for_topology" else "provisional",
+        "source": "opencv_post_grid",
         "module_internal_mm": module_internal_mm,
-        "grid_width_modules": 12,
-        "grid_depth_modules": 10,
-        "zones": [
-            {"id": "jaula", "label": "Jaula", "kind": "modular", "x": 0, "y": 4, "width": 4, "depth": 2, "levels": 2},
-            {"id": "transiciones", "label": "Transiciones", "kind": "modular", "x": 3, "y": 2, "width": 2, "depth": 2, "levels": 1},
-            {"id": "centro", "label": "Centro", "kind": "modular", "x": 4, "y": 4, "width": 5, "depth": 3, "levels": 2},
-            {"id": "cancha", "label": "Cancha", "kind": "accessory", "x": 7, "y": 1, "width": 2, "depth": 1, "levels": 1},
-            {"id": "tobogan", "label": "Tobogán", "kind": "special", "x": 6, "y": 2, "width": 4, "depth": 2, "levels": 1},
-            {"id": "puente", "label": "Puente", "kind": "special", "x": 4, "y": 8, "width": 5, "depth": 1, "levels": 1},
-            {"id": "torre", "label": "Torre", "kind": "special", "x": 9, "y": 7, "width": 2, "depth": 2, "levels": 3},
-        ],
+        "nodes": nodes,
+        "edges": [],
     }
 
 
 def analysis_response(views: list[dict], case_id: str, module_internal_mm: float, multiview: dict) -> dict:
     totals = {key: sum(view["line_counts"][key] for view in views) for key in ("horizontal", "vertical", "diagonal")}
+    metric_plan = build_metric_plan(module_internal_mm, views, multiview)
     return {
         "analysis_id": str(uuid.uuid4()),
         "case_id": case_id,
@@ -384,9 +417,9 @@ def analysis_response(views: list[dict], case_id: str, module_internal_mm: float
         "totals": totals,
         "views": views,
         "multiview": multiview,
-        "topology": build_topological_plan(case_id, module_internal_mm, multiview),
-        "metric_plan": build_metric_plan(case_id, module_internal_mm),
-        "next_stage": "confirm_metric_grid",
+        "topology": build_topological_plan(module_internal_mm, metric_plan, multiview),
+        "metric_plan": metric_plan,
+        "next_stage": "confirm_metric_grid" if metric_plan["zones"] else "request_clearer_views",
     }
 
 

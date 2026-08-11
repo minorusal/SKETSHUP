@@ -27,7 +27,7 @@
   </style>
 </head>
 <body>
-  <header><h1>Constructor de juegos desde imágenes</h1><p>Primera prueba: carga multivista y caso estructural Pi.03315</p></header>
+  <header><h1>Constructor de juegos desde imágenes</h1><p>Análisis geométrico local de cada juego cargado</p></header>
   <main>
     <section class="card">
       <h2>1. Datos confirmados</h2>
@@ -41,11 +41,11 @@
       <div id="previews"></div>
     </section>
     <section class="card">
-      <h2>3. Referencia manual precargada del caso</h2>
+      <h2>3. Referencia conocida (solo comparativa, no se copiará)</h2>
       <ul id="zones"></ul>
     </section>
     <section class="card">
-      <div class="warning"><b>Alcance de esta versión:</b> OpenCV analizará localmente bordes, líneas, orientaciones y candidatos a postes. Todavía no crea la geometría 3D.</div>
+      <div class="warning"><b>Alcance de esta versión:</b> OpenCV estima la cuadrícula modular desde postes y crujías del juego cargado. No identifica todavía por nombre toboganes, canchas u otros accesorios.</div>
       <button id="prepare" disabled>Analizar vistas localmente</button>
       <div id="status"></div>
       <div id="analysisPreviews"></div>
@@ -160,7 +160,7 @@
       $('topology').style.display='block';
     }
     function renderMetricPlan(plan){
-      if(!plan||!plan.zones.length)return;
+      if(!plan||!plan.zones.length){showStatus((plan&&plan.message)||'No se pudo detectar una cuadrícula estructural. Usa vistas más claras o edita la planta manualmente.','error');return}
       state.metricPlan=plan;
       const rows=plan.zones.map(zone=>`<tr><td>${zone.label}</td>${['x','y','width','depth','levels'].map(key=>`<td><input type="number" min="${key==='x'||key==='y'?0:1}" step="1" data-zone="${zone.id}" data-key="${key}" value="${zone[key]}"></td>`).join('')}</tr>`).join('');
       $('metricPlan').innerHTML=`<b>Cuadrícula métrica editable</b><div id="metricDrawing"></div><table class="metric-table"><thead><tr><th>Zona</th><th>X</th><th>Y</th><th>Ancho</th><th>Fondo</th><th>Niveles</th></tr></thead><tbody>${rows}</tbody></table><div class="fact" style="margin-top:8px"><b>Elementos del constructor modular</b><label><input id="optConnectors" type="checkbox" checked style="width:auto"> Conectores</label><label><input id="optSoleras" type="checkbox" checked style="width:auto"> Soleras</label><label><input id="optPlatforms" type="checkbox" checked style="width:auto"> Plataformas</label><label><input id="optNets" type="checkbox" style="width:auto"> Redes de seguridad</label></div><button class="apply-grid" id="applyGrid">Aplicar cambios a la planta</button><button id="createSkeleton">Crear estructura preliminar en SketchUp</button><div class="topology-note">Cada cuadro mide ${plan.module_internal_mm} mm internamente. Se reutilizan los generadores confirmados del Constructor de Módulos.</div>`;
