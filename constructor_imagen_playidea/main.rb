@@ -2,7 +2,6 @@ require 'sketchup.rb'
 require 'json'
 require 'fileutils'
 require 'net/http'
-require 'constructor_modulos_playidea/main'
 
 module PlayIdea
   module ConstructorImagen
@@ -65,6 +64,13 @@ module PlayIdea
         )
       end
       @dialog.add_action_callback('createSkeleton') do |_context, payload|
+        unless constructor_available?
+          UI.messagebox(
+            "No está disponible el Constructor de Módulos Play Idea.\n\n" \
+            'Actívalo en el Administrador de extensiones y reinicia SketchUp.'
+          )
+          next
+        end
         plan = validate_metric_plan(payload)
         next unless plan
         @dialog.close
@@ -137,6 +143,23 @@ module PlayIdea
         }
       end
       { module_internal_mm: payload['module_internal_mm'].to_f, zones: cleaned }
+    end
+
+    def constructor_available?
+      return true if defined?(PlayIdea::ConstructorModulos) &&
+        PlayIdea::ConstructorModulos.respond_to?(:create_module)
+
+      require 'constructor_modulos_playidea'
+      if defined?(PlayIdea::ConstructorModulos::EXTENSION) &&
+          (!defined?(PlayIdea::ConstructorModulos) ||
+           !PlayIdea::ConstructorModulos.respond_to?(:create_module))
+        require 'constructor_modulos_playidea/main'
+      end
+      defined?(PlayIdea::ConstructorModulos) &&
+        PlayIdea::ConstructorModulos.respond_to?(:create_module)
+    rescue LoadError, NameError => error
+      puts "No se pudo cargar el constructor modular: #{error.message}"
+      false
     end
 
     def create_placeholder(zone, origin, module_mm)
