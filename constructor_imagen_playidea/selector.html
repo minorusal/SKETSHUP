@@ -20,7 +20,7 @@
     #status.error{background:#fdeaea;color:#8b1d1d}#status.working{background:#eaf3fb;color:#174d7b}
     .spinner{display:inline-block;width:13px;height:13px;margin-right:7px;border:2px solid #8fb2d2;border-top-color:#174d7b;border-radius:50%;vertical-align:-2px;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
     #result{display:none;margin-top:10px;padding:10px;max-height:220px;overflow:auto;border-radius:6px;background:#152536;color:#d7ecff;font:11px/1.45 monospace;white-space:pre-wrap}
-    #analysisPreviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px;margin-top:12px}.analysis-view{overflow:hidden;border:1px solid #b9c7d4;border-radius:7px;background:#fff}.post-canvas{position:relative;background:#172334;touch-action:none}.post-canvas img{display:block;width:100%;height:auto}.post-canvas svg{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}.post-line{stroke:#ffb000;stroke-width:5;stroke-dasharray:10 6;vector-effect:non-scaling-stroke}.post-line.confirmed{stroke:#24d06f;stroke-dasharray:none}.post-hit{stroke:transparent;stroke-width:18;vector-effect:non-scaling-stroke;cursor:pointer}.analysis-caption{padding:8px;font-size:11px;line-height:1.4}.editor-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;padding:0 8px 8px}.editor-actions button{padding:8px;font-size:10px}.editor-actions .confirm{background:#24834c}.editor-actions .clear{background:#8b3c32}.analysis-view.confirmed{border:3px solid #24a65d}
+    #analysisPreviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px;margin-top:12px}.analysis-view{overflow:hidden;border:1px solid #b9c7d4;border-radius:7px;background:#fff}.post-canvas{position:relative;background:#172334;touch-action:none}.post-canvas img{display:block;width:100%;height:auto}.post-canvas svg{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}.post-line{stroke:#ff9500;stroke-width:5;vector-effect:non-scaling-stroke}.post-line.confirmed{stroke:#24d06f}.post-end{fill:#ff9500;stroke:#fff;stroke-width:2;vector-effect:non-scaling-stroke}.post-end.confirmed{fill:#24d06f}.height-label{font:bold 18px Arial;fill:#10243a;paint-order:stroke;stroke:#fff;stroke-width:5px;stroke-linejoin:round}.post-hit{stroke:transparent;stroke-width:18;vector-effect:non-scaling-stroke;cursor:pointer}.analysis-caption{padding:8px;font-size:11px;line-height:1.4}.editor-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;padding:0 8px 8px}.editor-actions button{padding:8px;font-size:10px}.editor-actions .confirm{background:#24834c}.editor-actions .clear{background:#8b3c32}.analysis-view.confirmed{border:3px solid #24a65d}
     #topology{display:none;margin-top:12px;padding:10px;border:1px solid #b9c7d4;border-radius:8px;background:#f8fbfe}#topology svg{display:block;width:100%;height:auto}.topology-note{font-size:11px;color:#526577;margin-top:6px}
     #correspondence{display:none;margin-top:12px;padding:12px;border:2px solid #2877a8;border-radius:8px;background:#f5faff}.pair-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px}.pair-view{position:relative;background:#172334}.pair-view img{display:block;width:100%;height:auto}.pair-view svg{position:absolute;inset:0;width:100%;height:100%}.pair-post{stroke:#c6d0da;stroke-width:5;vector-effect:non-scaling-stroke;cursor:pointer}.pair-post.selected{stroke:#00e5ff;stroke-width:8}.pair-hit{stroke:transparent;stroke-width:22;vector-effect:non-scaling-stroke;cursor:pointer}.pair-label{font:bold 24px Arial;paint-order:stroke;stroke:#fff;stroke-width:5px;stroke-linejoin:round}.pair-summary{margin:9px 0;font-size:12px}.pair-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}.pair-actions .clear{background:#8b3c32}
     #metricPlan{display:none;margin-top:12px;padding:12px;border:1px solid #b9c7d4;border-radius:8px;background:white}#metricPlan svg{width:100%;max-height:520px}.metric-table{width:100%;border-collapse:collapse;font-size:11px}.metric-table th,.metric-table td{padding:4px;border-bottom:1px solid #dce4eb;text-align:center}.metric-table input{width:58px;padding:4px}.apply-grid{margin-top:8px;background:#1976a8}
@@ -144,7 +144,9 @@
     function renderPostEditor(view,index){
       const source=state.files[index];
       const sx=view.analysis_size.width/view.original_size.width,sy=view.analysis_size.height/view.original_size.height;
-      const marks=view.post_candidates.filter(post=>(post.structural_post??post.structural_blue)).map(post=>({x:post.x_px,y1:post.top_y_px,y2:post.bottom_y_px,automatic:true}));
+      const projectedStep=view.projected_grid_groups.length?view.projected_grid_groups.map(group=>group.projected_step_px).sort((a,b)=>a-b)[Math.floor(view.projected_grid_groups.length/2)]:null;
+      const heightFor=(span,levels=null)=>{const count=levels||Math.max(1,Math.min(8,Math.round(span/(projectedStep||span))));return{levels:count,height_mm:Math.round(count*state.reference.module_internal_mm)}};
+      const marks=view.post_candidates.filter(post=>(post.structural_post??post.structural_blue)).map(post=>({x:post.x_px,y1:post.top_y_px,y2:post.bottom_y_px,automatic:true,...heightFor(post.span_px,post.provisional_levels)}));
       const edit={marks,confirmed:false,width:view.analysis_size.width,height:view.analysis_size.height};state.postEdits[index]=edit;
       const card=document.createElement('div');card.className='analysis-view';card.dataset.view=index;
       const canvas=document.createElement('div');canvas.className='post-canvas';
@@ -163,13 +165,15 @@
         edit.marks.forEach((mark,markIndex)=>{
           const line=document.createElementNS(svg.namespaceURI,'line');line.setAttribute('x1',mark.x);line.setAttribute('x2',mark.x);line.setAttribute('y1',mark.y1);line.setAttribute('y2',mark.y2);line.setAttribute('class',`post-line${!mark.automatic?' confirmed':''}`);
           const hit=line.cloneNode();hit.setAttribute('class','post-hit');hit.addEventListener('pointerdown',event=>{event.stopPropagation();edit.marks.splice(markIndex,1);edit.confirmed=false;card.classList.remove('confirmed');redraw()});
-          svg.append(line,hit);
+          const endClass=`post-end${!mark.automatic?' confirmed':''}`;const top=document.createElementNS(svg.namespaceURI,'circle'),bottom=top.cloneNode();top.setAttribute('cx',mark.x);top.setAttribute('cy',mark.y1);bottom.setAttribute('cx',mark.x);bottom.setAttribute('cy',mark.y2);top.setAttribute('r',5);bottom.setAttribute('r',5);top.setAttribute('class',endClass);bottom.setAttribute('class',endClass);
+          const label=document.createElementNS(svg.namespaceURI,'text');label.setAttribute('x',mark.x+8);label.setAttribute('y',Math.max(18,mark.y1+18));label.setAttribute('class','height-label');label.textContent=`${mark.levels}N · ${mark.height_mm}mm`;
+          svg.append(line,top,bottom,label,hit);
         });
       };
       const point=event=>{const box=svg.getBoundingClientRect();return{x:(event.clientX-box.left)*edit.width/box.width,y:(event.clientY-box.top)*edit.height/box.height}};
       let start=null;
       svg.addEventListener('pointerdown',event=>{start=point(event);svg.setPointerCapture(event.pointerId)});
-      svg.addEventListener('pointerup',event=>{if(!start)return;const end=point(event);if(Math.abs(end.y-start.y)>edit.height*.04){edit.marks.push({x:(start.x+end.x)/2,y1:Math.min(start.y,end.y),y2:Math.max(start.y,end.y),automatic:false});edit.confirmed=false;card.classList.remove('confirmed');redraw()}start=null});
+      svg.addEventListener('pointerup',event=>{if(!start)return;const end=point(event);if(Math.abs(end.y-start.y)>edit.height*.04){edit.marks.push({x:(start.x+end.x)/2,y1:Math.min(start.y,end.y),y2:Math.max(start.y,end.y),automatic:false,...heightFor(Math.abs(end.y-start.y))});edit.confirmed=false;card.classList.remove('confirmed');redraw()}start=null});
       accept.onclick=()=>{edit.marks.forEach(mark=>mark.automatic=false);redraw()};
       clear.onclick=()=>{edit.marks=[];edit.confirmed=false;card.classList.remove('confirmed');redraw()};
       confirm.onclick=()=>{if(edit.marks.length<2){showStatus(`La vista ${index+1} necesita al menos dos postes.`,'error');return}edit.marks.forEach(mark=>mark.automatic=false);edit.confirmed=true;card.classList.add('confirmed');redraw();checkAllViewsConfirmed()};
@@ -216,7 +220,7 @@
       const payload={
         analysis_id:state.analysis.analysis_id,module_internal_mm:state.reference.module_internal_mm,
         images:state.files.map(file=>({name:file.name,data_url:file.dataUrl})),
-        views:state.postEdits.map((view,index)=>({view_index:index+1,image_width:view.width,image_height:view.height,posts:view.marks.map((mark,postIndex)=>({post_index:postIndex,x:mark.x,top_y:mark.y1,bottom_y:mark.y2,confirmed:true}))})),
+        views:state.postEdits.map((view,index)=>({view_index:index+1,image_width:view.width,image_height:view.height,posts:view.marks.map((mark,postIndex)=>({post_index:postIndex,x:mark.x,top_y:mark.y1,bottom_y:mark.y2,provisional_levels:mark.levels,provisional_height_mm:mark.height_mm,confirmed:true}))})),
         anchor_views:{front_view:leftIndex+1,depth_view:rightIndex+1},
         correspondences:state.pairs.map(pair=>({id:pair.id,front_post_index:pair.left,depth_post_index:pair.right}))
       };

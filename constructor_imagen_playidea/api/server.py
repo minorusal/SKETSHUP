@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.9.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.14.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,7 +26,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.9.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.14.0"}
 
 
 class EncodedImage(BaseModel):
@@ -242,6 +242,19 @@ def segment_blue_ratio(hsv: np.ndarray, segment: dict) -> float:
     return round(blue / total, 3) if total else 0.0
 
 
+def segment_saturation_ratio(hsv: np.ndarray, segment: dict) -> float:
+    height, width = hsv.shape[:2]
+    samples = max(16, min(64, round(segment["length_px"] / 8)))
+    xs = np.linspace(segment["x1"], segment["x2"], samples).round().astype(int)
+    ys = np.linspace(segment["y1"], segment["y2"], samples).round().astype(int)
+    colored, total = 0, 0
+    for x, y in zip(xs, ys):
+        patch = hsv[max(0, y - 2):min(height, y + 3), max(0, x - 2):min(width, x + 3)]
+        colored += int(np.count_nonzero((patch[:, :, 1] >= 75) & (patch[:, :, 2] >= 45)))
+        total += patch.shape[0] * patch.shape[1]
+    return round(colored / total, 3) if total else 0.0
+
+
 def build_post_candidates(segments: list[dict], width: int, height: int) -> list[dict]:
     verticals = [
         segment for segment in segments
@@ -338,6 +351,36 @@ def projected_grid_groups(posts: list[dict], module_internal_mm: float, image_he
     } for group in groups]
 
 
+def assign_provisional_post_heights(candidates: list[dict], grid_groups: list[dict], segments: list[dict], width: int, height: int, module_internal_mm: float) -> None:
+    steps = [group["projected_step_px"] for group in grid_groups if group["projected_step_px"] > 0]
+    projected_module_px = float(np.median(steps)) if steps else None
+    for candidate in candidates:
+        crossing_y = []
+        for segment in segments:
+            if segment["kind"] != "horizontal" or segment.get("saturation_ratio", 0) < 0.16 or segment["length_px"] < width * 0.075:
+                continue
+            x_min, x_max = sorted((segment["x1"], segment["x2"]))
+            y = (segment["y1"] + segment["y2"]) / 2.0
+            if x_min - width * 0.015 <= candidate["x_px"] <= x_max + width * 0.015 and candidate["top_y_px"] <= y <= candidate["bottom_y_px"]:
+                crossing_y.append(y)
+        clusters = []
+        for y in sorted(crossing_y):
+            if not clusters or y - float(np.mean(clusters[-1])) > height * 0.035:
+                clusters.append([y])
+            else:
+                clusters[-1].append(y)
+        rail_levels = len(clusters) - 1
+        if 1 <= rail_levels <= 6:
+            levels, source = rail_levels, "colored_horizontal_levels"
+        elif projected_module_px:
+            levels, source = max(1, min(4, round(candidate["span_px"] / projected_module_px))), "projected_module_ratio"
+        else:
+            levels, source = 1, "unscaled_default"
+        candidate["provisional_levels"] = levels
+        candidate["provisional_height_mm"] = round(levels * module_internal_mm, 1)
+        candidate["height_source"] = source
+
+
 def annotated_preview(image: np.ndarray, segments: list[dict], posts: list[dict]) -> str:
     overlay = image.copy()
     height, width = overlay.shape[:2]
@@ -413,6 +456,7 @@ def analyze_image(raw: bytes, filename: str) -> dict:
                     "kind": kind,
                 }
             segment["blue_ratio"] = segment_blue_ratio(hsv, segment)
+            segment["saturation_ratio"] = segment_saturation_ratio(hsv, segment)
             raw_segments.append(segment)
 
     raw_segments.sort(key=lambda item: item["length_px"], reverse=True)
@@ -421,6 +465,7 @@ def analyze_image(raw: bytes, filename: str) -> dict:
     post_candidates = build_post_candidates(segments, width, height)
     apply_learned_post_model(image, post_candidates)
     grid_groups = projected_grid_groups(post_candidates, 1168.4, height)
+    assign_provisional_post_heights(post_candidates, grid_groups, segments, width, height, 1168.4)
     return {
         "filename": filename,
         "original_size": {"width": original_width, "height": original_height},

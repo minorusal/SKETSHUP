@@ -115,6 +115,7 @@ Flujo esperado:
 - Empezar aprendiendo una sola clase: poste estructural vertical. Agregar tubos horizontales, conectores y accesorios como clases separadas después de validar esta primera clase.
 - Preferir generar ejemplos sintéticos desde modelos SketchUp conocidos, proyectando sus tubos con la cámara, para ampliar el dataset sin etiquetado manual repetitivo.
 - Reentrenar el detector local al guardar cada ejemplo válido y registrar cantidad de ejemplos/muestras. Considerar el modelo experimental mientras no haya diversidad de juegos; evaluar siempre sobre un juego no usado para entrenamiento.
+- Tratar la altura obtenida por razón entre longitud proyectada del poste y paso modular proyectado como provisional. Mostrar niveles, milímetros, punta y base sobre la imagen; no usarla todavía para construir hasta validarla entre vistas o contra niveles horizontales.
 
 ## Verificación mínima
 
