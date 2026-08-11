@@ -380,6 +380,12 @@ layers = model.layers
 
 # CORRECCIÓN DE SCOPE: Definición de huellas antes de los ciclos de clasificación
 huellas_estructurales = [
+{ descripcion: "Panel_interactivo_yelcot (agregada desde el plugin: 0 caras, 1.17 x 1.17 x 0.04 m)", condicion: ->(ent) { hijos = (ent.is_a?(Sketchup::Group) ? ent.entities : ent.definition.entities) rescue nil; next false unless hijos; caras = hijos.grep(Sketchup::Face).count; d = pi_dimensiones(ent, Geom::Transformation.new); (caras - 0).abs <= 2 && (d[:largo] - 1.17).abs < 0.05 && (d[:ancho] - 1.17).abs < 0.05 && (d[:grosor_min] - 0.04).abs < 0.03 }, tag: "Panel_interactivo_yelcot" },
+{ descripcion: "alberca_d_epelotas_area_de_bebes (agregada desde el plugin: 0 caras, 1.47 x 1.17 x 0.25 m)", condicion: ->(ent) { hijos = (ent.is_a?(Sketchup::Group) ? ent.entities : ent.definition.entities) rescue nil; next false unless hijos; caras = hijos.grep(Sketchup::Face).count; d = pi_dimensiones(ent, Geom::Transformation.new); (caras - 0).abs <= 2 && (d[:largo] - 1.47).abs < 0.05 && (d[:ancho] - 1.17).abs < 0.05 && (d[:grosor_min] - 0.25).abs < 0.03 }, tag: "alberca_d_epelotas_area_de_bebes" },
+{ descripcion: "media_monta_a_cocodrilo (agregada desde el plugin: 0 caras, 0.92 x 0.6 x 0.55 m)", condicion: ->(ent) { hijos = (ent.is_a?(Sketchup::Group) ? ent.entities : ent.definition.entities) rescue nil; next false unless hijos; caras = hijos.grep(Sketchup::Face).count; d = pi_dimensiones(ent, Geom::Transformation.new); (caras - 0).abs <= 2 && (d[:largo] - 0.92).abs < 0.05 && (d[:ancho] - 0.6).abs < 0.05 && (d[:grosor_min] - 0.55).abs < 0.03 }, tag: "media_monta_a_cocodrilo" },
+{ descripcion: "Alberca_de_esponjas_de_medida_1_94___4_26___0_50 (agregada desde el plugin: 0 caras, 4.48 x 2.15 x 0.79 m)", condicion: ->(ent) { hijos = (ent.is_a?(Sketchup::Group) ? ent.entities : ent.definition.entities) rescue nil; next false unless hijos; caras = hijos.grep(Sketchup::Face).count; d = pi_dimensiones(ent, Geom::Transformation.new); (caras - 0).abs <= 2 && (d[:largo] - 4.48).abs < 0.05 && (d[:ancho] - 2.15).abs < 0.05 && (d[:grosor_min] - 0.79).abs < 0.03 }, tag: "Alberca_de_esponjas_de_medida_1_94___4_26___0_50" },
+{ descripcion: "Tina_de_alberca_de_esponjas (agregada desde el plugin: 28 caras, 5.08 x 1.95 x 0.65 m)", condicion: ->(ent) { hijos = (ent.is_a?(Sketchup::Group) ? ent.entities : ent.definition.entities) rescue nil; next false unless hijos; caras = hijos.grep(Sketchup::Face).count; d = pi_dimensiones(ent, Geom::Transformation.new); (caras - 28).abs <= 2 && (d[:largo] - 5.08).abs < 0.05 && (d[:ancho] - 1.95).abs < 0.05 && (d[:grosor_min] - 0.65).abs < 0.03 }, tag: "Tina_de_alberca_de_esponjas" },
+{ descripcion: "topes_para_acceso_a_tumbling (agregada desde el plugin: 0 caras, 1.04 x 0.76 x 0.62 m)", condicion: ->(ent) { hijos = (ent.is_a?(Sketchup::Group) ? ent.entities : ent.definition.entities) rescue nil; next false unless hijos; caras = hijos.grep(Sketchup::Face).count; d = pi_dimensiones(ent, Geom::Transformation.new); (caras - 0).abs <= 2 && (d[:largo] - 1.04).abs < 0.05 && (d[:ancho] - 0.76).abs < 0.05 && (d[:grosor_min] - 0.62).abs < 0.03 }, tag: "topes_para_acceso_a_tumbling" },
 { descripcion: "Ducto Recto (sub-grupo 'Diferencia')", condicion: ->(ent) { pi_tiene_subgrupo_nombre(ent, "Diferencia") }, tag: "Ducto_Recto" },
 { descripcion: "Dona con Cadena (~102/26 x2 + ~2602 x1)", condicion: ->(ent) { (pi_cuenta_subgrupos_con_caras(ent, 102) >= 2 || pi_cuenta_subgrupos_con_caras(ent, 26) >= 2) && pi_cuenta_subgrupos_con_caras(ent, 2602, 50) >= 1 }, tag: "Dona_con_Cadena" },
 { descripcion: "Taza Giratoria (~12842 x2)", condicion: ->(ent) { pi_cuenta_subgrupos_con_caras(ent, 12842, 100) >= 2 }, tag: "Taza_Giratoria" },
@@ -1643,6 +1649,12 @@ model.commit_operation
   
   # Precios Unitarios (Base LISTA_MAESTRA_PRECIOS_PLAYIDEA.md)
   @precios = {
+    "Panel_interactivo_yelcot" => 7644.0,
+    "alberca_d_epelotas_area_de_bebes" => 4500.0,
+    "media_monta_a_cocodrilo" => 3500.0,
+    "Alberca_de_esponjas_de_medida_1_94___4_26___0_50" => 68000.0,
+    "Tina_de_alberca_de_esponjas" => 5000.0,
+    "topes_para_acceso_a_tumbling" => 7540.0,
     "1.17x1.17" => 1500, "1.19x0.7" => 1500, "1.3x1.25" => 1500, "0.6x0.39" => 900, "1.17x0.61" => 1200, "1.17x0.88" => 1500, "0.88x0.45" => 1500, "1.17x0.45" => 1500, "0.6x0.45" => 1500, "1.31x0.51" => 1500, "0.61x0.59" => 1500, "1.62x1.10" => 1950, "Panel_Triangular" => 1500, "Tobogan_Fibra" => 22000, "Panel_Entrada_Curvo_Grande" => 4500, "Panel_Entrada_Curvo_Chico" => 2500, "Rampa_2.82x1.1" => 3500, "Tope_Largo" => 450, "Panel_Multiventanas" => 3500,
     "Hormiguero" => 900, "Resbaladilla" => 8000, "Modulo_Ligas" => 3000, "Dona_con_Cadena" => 1500, "Costal_Cruzado" => 1500,
     "Ducto_Recto" => 26000, "Taza_Giratoria" => 10000, "Montana_Cocodrilo" => 3500, "Zapatera_FV" => 6000,
