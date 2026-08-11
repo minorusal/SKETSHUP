@@ -142,7 +142,14 @@ module PlayIdea
           x: values[0], y: values[1], width: values[2], depth: values[3], levels: values[4]
         }
       end
-      { module_internal_mm: payload['module_internal_mm'].to_f, zones: cleaned }
+      raw_options = payload['build_options'].is_a?(Hash) ? payload['build_options'] : {}
+      options = {
+        connectors: raw_options['connectors'] != false,
+        soleras: raw_options['soleras'] == true,
+        platforms: raw_options['platforms'] == true,
+        nets: raw_options['nets'] == true
+      }
+      { module_internal_mm: payload['module_internal_mm'].to_f, zones: cleaned, build_options: options }
     end
 
     def constructor_available?
@@ -217,9 +224,30 @@ module PlayIdea
             params = {
               modules_x: zone[:width], modules_y: zone[:depth], modules_z: zone[:levels],
               spacing_x_mm: module_mm, spacing_y_mm: module_mm, spacing_z_mm: module_mm,
-              color: 'Azul', code: "PRE-#{zone[:id].upcase}", connectors: false, padding: false
+              color: 'Azul', code: "PRE-#{zone[:id].upcase}",
+              connectors: @plan[:build_options][:connectors], padding: false
             }
-            PlayIdea::ConstructorModulos.create_module(params, zone_origin)
+            structure = PlayIdea::ConstructorModulos.create_module(params, zone_origin)
+            model = Sketchup.active_model
+            if @plan[:build_options][:soleras]
+              model.start_operation('Agregar soleras preliminares', true)
+              solera_def = PlayIdea::ConstructorModulos.create_solera_definition(model, params[:color])
+              count = PlayIdea::ConstructorModulos.place_square_soleras(structure.entities, params, zone_origin, solera_def)
+              structure.set_attribute(PlayIdea::ConstructorModulos::DICTIONARY, 'solera_count', count)
+              model.commit_operation
+            end
+            if @plan[:build_options][:platforms]
+              model.start_operation('Agregar plataformas preliminares', true)
+              count = PlayIdea::ConstructorModulos.place_platforms(structure.entities, params, zone_origin, model)
+              structure.set_attribute(PlayIdea::ConstructorModulos::DICTIONARY, 'platform_count', count)
+              model.commit_operation
+            end
+            if @plan[:build_options][:nets]
+              model.start_operation('Agregar redes preliminares', true)
+              count = PlayIdea::ConstructorModulos.place_nets(structure.entities, params, zone_origin, model)
+              structure.set_attribute(PlayIdea::ConstructorModulos::DICTIONARY, 'net_count', count)
+              model.commit_operation
+            end
           else
             PlayIdea::ConstructorImagen.create_placeholder(zone, @input.position, module_mm)
           end
