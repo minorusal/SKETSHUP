@@ -60,8 +60,10 @@ module PlayIdeaCostalScript
   # cargar.
   TAPA_THICKNESS_MM = 3.0 # grosor del plástico -faldón y domo-
   TAPA_CLEARANCE_MM = 1.5 # holgura del faldón contra el tubo, para que entre sin apretar
-  TAPA_SKIRT_HEIGHT_MM = 25.0 # cuánto se mete el faldón sobre el cuerpo del tubo
-  TAPA_OUTER_R_MM = CYLINDER_RADIUS_MM + TAPA_CLEARANCE_MM
+  # Dato DIRECTO del usuario: el faldón baja 2" sobre el cuerpo.
+  TAPA_SKIRT_HEIGHT_MM = 2.0 * MM_PER_IN # 50.8
+  TAPA_INNER_R_MM = CYLINDER_RADIUS_MM + TAPA_CLEARANCE_MM
+  TAPA_OUTER_R_MM = TAPA_INNER_R_MM + TAPA_THICKNESS_MM
   TAPA_DOME_RISE_MM = 20.0 # qué tanto se levanta el domo, perfil suave -no puntiagudo-
 
   # Perforación vertical al centro -pedido del usuario, corregido: NO es
@@ -79,14 +81,11 @@ module PlayIdeaCostalScript
   POST_HOLE_CLEARANCE_MM = 2.0
   POST_HOLE_RADIUS_MM = (PVC_POST_OUTSIDE_MM / 2.0) + POST_HOLE_CLEARANCE_MM
 
-  # PVC visible -pedido del usuario: "te faltó poner el tubo PVC"-: el
-  # hueco central ya existía, pero faltaba dibujar el tubo de verdad
-  # atravesando el costal, para verlo en su lugar. Asoma un tramo de
-  # cada lado -PROVISIONAL, solo para que se note que atraviesa; en una
-  # instalación real el mismo PVC seguiría más allá, hacia los postes de
-  # la estructura-. Radio real del PVC -sin la holgura del hueco, que es
-  # solo el espacio libre alrededor-, color gris claro típico de PVC.
-  PVC_VISIBLE_OVERHANG_MM = 150.0
+  # PVC visible -pedido del usuario: "te faltó poner el tubo PVC"-. Dato
+  # corregido después de la primera prueba: debe medir exactamente lo mismo
+  # que el cuerpo del rodillo, sin sobresalir por ninguno de los extremos.
+  # Radio real del PVC -sin la holgura del hueco, que es solo el espacio
+  # libre alrededor-, color gris claro típico de PVC.
   PVC_RADIUS_MM = PVC_POST_OUTSIDE_MM / 2.0
   PVC_COLOR = Sketchup::Color.new(214, 214, 208).freeze
 
@@ -209,7 +208,7 @@ module PlayIdeaCostalScript
     # domo redondeado arriba-. La cinta de tela queda como banda
     # decorativa justo donde el faldón se encuentra con el domo -ya no
     # hay un "disco plano" al que coserla, ver build_tapa_lid-.
-    tapa_top_z = CYLINDER_LENGTH_MM + TAPA_SKIRT_HEIGHT_MM
+    tapa_top_z = CYLINDER_LENGTH_MM
     build_tapa_lid(entities, model, params[:lona_hex])
     build_cinta_ring(entities, model, tapa_top_z, params[:stripe_hex])
     build_foam_stack(entities, model)
@@ -390,22 +389,22 @@ module PlayIdeaCostalScript
   # Tapa desmontable -"como la tapa de una botella, una taparrosca SIN
   # rosca, entra a presión"-: faldón de pared DOBLE -grosor real de
   # plástico, no una lámina de una sola cara- que se resbala por FUERA
-  # del cuerpo del tubo -TAPA_OUTER_R_MM, más ancho que el tubo mismo,
-  # para que "embone"-, rematado arriba por un domo poco profundo y
+  # del cuerpo del tubo -TAPA_INNER_R_MM deja la holgura por dentro y
+  # TAPA_OUTER_R_MM suma el espesor real-, rematado arriba por un domo y
   # REDONDEADO -build_tapa_dome-, no un disco plano con esquina viva.
   def build_tapa_lid(entities, model, hex)
-    skirt_z0 = CYLINDER_LENGTH_MM
-    outer_skirt_z1 = CYLINDER_LENGTH_MM + TAPA_SKIRT_HEIGHT_MM
+    skirt_z0 = CYLINDER_LENGTH_MM - TAPA_SKIRT_HEIGHT_MM
+    outer_skirt_z1 = CYLINDER_LENGTH_MM
     inner_skirt_z1 = outer_skirt_z1 - TAPA_THICKNESS_MM
     outer_r = TAPA_OUTER_R_MM.mm
-    inner_r = (TAPA_OUTER_R_MM - TAPA_THICKNESS_MM).mm
+    inner_r = TAPA_INNER_R_MM.mm
     add_wall(entities, outer_r, skirt_z0.mm, outer_skirt_z1.mm)
     add_wall(entities, inner_r, skirt_z0.mm, inner_skirt_z1.mm)
     add_ring(entities, inner_r, outer_r, skirt_z0.mm) # remate abierto del faldón, ras con la punta del tubo
     build_tapa_dome(
       entities,
       TAPA_OUTER_R_MM,
-      TAPA_OUTER_R_MM - TAPA_THICKNESS_MM,
+      TAPA_INNER_R_MM,
       TAPA_DOME_RISE_MM,
       POST_HOLE_RADIUS_MM,
       outer_skirt_z1
@@ -576,12 +575,11 @@ module PlayIdeaCostalScript
   end
 
   # PVC visible -pedido del usuario: "te faltó poner el tubo PVC"-: una
-  # varilla sólida -no hueca, simplificación visual, ver la constante
-  # PVC_VISIBLE_OVERHANG_MM- que atraviesa TODO el costal por el hueco
-  # central, de la base a la tapa, asomando un tramo de cada lado.
+  # varilla sólida -no hueca, simplificación visual- que atraviesa el hueco
+  # central y mide exactamente lo mismo que el cuerpo del rodillo.
   def build_pvc_post(entities, model)
-    z0 = -PVC_VISIBLE_OVERHANG_MM
-    z1 = CYLINDER_LENGTH_MM + TAPA_SKIRT_HEIGHT_MM + TAPA_DOME_RISE_MM + PVC_VISIBLE_OVERHANG_MM
+    z0 = 0.0
+    z1 = CYLINDER_LENGTH_MM
     r = PVC_RADIUS_MM.mm
     add_wall(entities, r, z0.mm, z1.mm)
     add_ring(entities, 0.mm, r, z0.mm)
