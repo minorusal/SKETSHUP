@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.3.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,7 +24,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.3.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.4.0"}
 
 
 class EncodedImage(BaseModel):
@@ -63,6 +63,22 @@ def is_presentation_border(segment: dict, width: int, height: int) -> bool:
     return (long_horizontal and on_top_or_bottom) or (long_vertical and on_left_or_right)
 
 
+def segment_blue_ratio(hsv: np.ndarray, segment: dict) -> float:
+    height, width = hsv.shape[:2]
+    samples = max(16, min(64, round(segment["length_px"] / 8)))
+    xs = np.linspace(segment["x1"], segment["x2"], samples).round().astype(int)
+    ys = np.linspace(segment["y1"], segment["y2"], samples).round().astype(int)
+    blue, total = 0, 0
+    for x, y in zip(xs, ys):
+        x0, x1 = max(0, x - 2), min(width, x + 3)
+        y0, y1 = max(0, y - 2), min(height, y + 3)
+        patch = hsv[y0:y1, x0:x1]
+        hue, saturation, value = patch[:, :, 0], patch[:, :, 1], patch[:, :, 2]
+        blue += int(np.count_nonzero((hue >= 85) & (hue <= 135) & (saturation >= 70) & (value >= 35)))
+        total += patch.shape[0] * patch.shape[1]
+    return round(blue / total, 3) if total else 0.0
+
+
 def build_post_candidates(segments: list[dict], width: int, height: int) -> list[dict]:
     verticals = [
         segment for segment in segments
@@ -92,16 +108,71 @@ def build_post_candidates(segments: list[dict], width: int, height: int) -> list
         longest = max(item["length_px"] for item in cluster)
         if span < height * 0.10 and longest < height * 0.08:
             continue
-        confidence = min(0.99, 0.22 + (span / height) * 0.95 + min(len(cluster), 6) * 0.055)
+        total_length = sum(item["length_px"] for item in cluster)
+        blue_ratio = sum(item["blue_ratio"] * item["length_px"] for item in cluster) / total_length
+        structural_blue = blue_ratio >= 0.12
+        confidence = min(0.99, 0.18 + (span / height) * 0.82 + min(len(cluster), 6) * 0.045 + min(blue_ratio, 0.5) * 0.7)
         candidates.append({
             "x_px": round(center_mean, 1),
             "top_y_px": int(top),
             "bottom_y_px": int(bottom),
             "span_px": int(span),
             "segment_count": len(cluster),
+            "blue_ratio": round(blue_ratio, 3),
+            "structural_blue": structural_blue,
             "confidence": round(confidence, 2),
         })
     return candidates
+
+
+def projected_grid_groups(posts: list[dict], module_internal_mm: float, image_height: int) -> list[dict]:
+    selected = sorted(
+        [post for post in posts if post["structural_blue"] and post["confidence"] >= 0.45],
+        key=lambda post: (post["bottom_y_px"], post["top_y_px"]),
+    )
+    if len(selected) < 2:
+        return []
+    rows: list[list[dict]] = []
+    for post in selected:
+        matching = None
+        for row in rows:
+            mean_bottom = np.mean([item["bottom_y_px"] for item in row])
+            mean_top = np.mean([item["top_y_px"] for item in row])
+            if abs(post["bottom_y_px"] - mean_bottom) <= image_height * 0.09 and abs(post["top_y_px"] - mean_top) <= image_height * 0.15:
+                matching = row
+                break
+        if matching is None:
+            rows.append([post])
+        else:
+            matching.append(post)
+
+    groups = []
+    for row in rows:
+        row.sort(key=lambda post: post["x_px"])
+        if len(row) < 2:
+            continue
+        gaps = np.diff([post["x_px"] for post in row])
+        upper = np.percentile(gaps, 75)
+        compact = gaps[gaps <= upper]
+        typical = float(np.median(compact if len(compact) else gaps))
+        current = [row[0]]
+        for post, gap in zip(row[1:], gaps):
+            if gap > typical * 2.4:
+                if len(current) >= 2:
+                    groups.append(current)
+                current = [post]
+            else:
+                current.append(post)
+        if len(current) >= 2:
+            groups.append(current)
+    return [{
+        "post_count": len(group),
+        "provisional_bay_count": len(group) - 1,
+        "projected_step_px": round(float(np.median(np.diff([post["x_px"] for post in group]))), 1),
+        "span_px": round(group[-1]["x_px"] - group[0]["x_px"], 1),
+        "module_internal_mm": module_internal_mm,
+        "confidence": 0.45,
+    } for group in groups]
 
 
 def annotated_preview(image: np.ndarray, segments: list[dict], posts: list[dict]) -> str:
@@ -146,6 +217,7 @@ def analyze_image(raw: bytes, filename: str) -> dict:
     height, width = image.shape[:2]
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(gray, 55, 165)
     minimum = max(30, round(min(width, height) * 0.035))
@@ -168,8 +240,7 @@ def analyze_image(raw: bytes, filename: str) -> dict:
             angle = math.degrees(math.atan2(dy, dx))
             kind = classify_angle(angle)
             raw_counts[kind] += 1
-            raw_segments.append(
-                {
+            segment = {
                     "x1": x1,
                     "y1": y1,
                     "x2": x2,
@@ -178,12 +249,14 @@ def analyze_image(raw: bytes, filename: str) -> dict:
                     "angle_deg": round(angle, 1),
                     "kind": kind,
                 }
-            )
+            segment["blue_ratio"] = segment_blue_ratio(hsv, segment)
+            raw_segments.append(segment)
 
     raw_segments.sort(key=lambda item: item["length_px"], reverse=True)
     segments = [segment for segment in raw_segments if not is_presentation_border(segment, width, height)]
     counts = {kind: sum(1 for segment in segments if segment["kind"] == kind) for kind in ("horizontal", "vertical", "diagonal")}
     post_candidates = build_post_candidates(segments, width, height)
+    grid_groups = projected_grid_groups(post_candidates, 1168.4, height)
     return {
         "filename": filename,
         "original_size": {"width": original_width, "height": original_height},
@@ -193,6 +266,7 @@ def analyze_image(raw: bytes, filename: str) -> dict:
         "line_counts": counts,
         "discarded_border_segments": len(raw_segments) - len(segments),
         "post_candidates": post_candidates,
+        "projected_grid_groups": grid_groups,
         "strongest_segments": segments[:120],
         "overlay_data_url": annotated_preview(image, segments, post_candidates),
     }

@@ -126,7 +126,9 @@
         result.views.forEach((view,index)=>{
           const card=document.createElement('div');card.className='analysis-view';
           const img=document.createElement('img');img.src=view.overlay_data_url;img.alt=`Análisis vista ${index+1}`;
-          const text=document.createElement('div');text.textContent=`Vista ${index+1}: ${view.post_candidates.length} candidatos a poste; ${view.discarded_border_segments} segmentos de marco descartados.`;
+          const bluePosts=view.post_candidates.filter(post=>post.structural_blue).length;
+          const bays=view.projected_grid_groups.reduce((sum,group)=>sum+group.provisional_bay_count,0);
+          const text=document.createElement('div');text.textContent=`Vista ${index+1}: ${view.post_candidates.length} candidatos, ${bluePosts} con señal azul estructural; ${view.projected_grid_groups.length} filas y ${bays} crujías provisionales; ${view.discarded_border_segments} segmentos de marco descartados.`;
           card.append(img,text);$('analysisPreviews').appendChild(card);
         });
         const compact={...result,views:result.views.map(view=>{const copy={...view};delete copy.overlay_data_url;return copy})};
