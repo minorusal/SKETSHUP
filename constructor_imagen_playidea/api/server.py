@@ -7,6 +7,7 @@ import uuid
 import json
 import hashlib
 import threading
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
@@ -15,10 +16,11 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.18.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.19.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,7 +31,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.18.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.19.0"}
 
 
 class EncodedImage(BaseModel):
@@ -57,6 +59,11 @@ class TrainingExampleRequest(BaseModel):
 class BatchAnalysisRequest(BaseModel):
     root_path: str
     max_images: int = 10_000
+
+
+class ReviewDecisionRequest(BaseModel):
+    record_name: str
+    decision: str
 
 
 def training_dataset_dir() -> Path:
@@ -190,6 +197,101 @@ def batch_analysis_status(job_id: str) -> dict:
     if not job:
         raise HTTPException(status_code=404, detail="No se encontró ese análisis por lotes.")
     return public_batch_job(job)
+
+
+def existing_batch_dir(job_id: str) -> Path:
+    if not job_id.startswith("batch_") or not job_id.replace("batch_", "", 1).isalnum():
+        raise HTTPException(status_code=422, detail="Identificador de lote inválido.")
+    directory = training_dataset_dir() / "batch_imports" / job_id
+    if not directory.is_dir():
+        raise HTTPException(status_code=404, detail="No se encontró el lote guardado.")
+    return directory
+
+
+def existing_batch_record(job_id: str, record_name: str) -> tuple[Path, dict]:
+    if not record_name.startswith("image_") or not record_name.endswith(".json") or Path(record_name).name != record_name:
+        raise HTTPException(status_code=422, detail="Registro inválido.")
+    path = existing_batch_dir(job_id) / record_name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="No se encontró la imagen del lote.")
+    return path, json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get("/batch-review/{job_id}/items")
+def batch_review_items(job_id: str, bucket: str = "high_confidence", limit: int = 50) -> dict:
+    if bucket not in {"high_confidence", "needs_review", "all"}:
+        raise HTTPException(status_code=422, detail="Categoría de revisión inválida.")
+    items = []
+    counts = {"pending": 0, "approved": 0, "rejected": 0}
+    for path in sorted(existing_batch_dir(job_id).glob("image_*.json")):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        decision = record.get("review", {}).get("decision", "pending")
+        counts[decision] = counts.get(decision, 0) + 1
+        if decision != "pending" or (bucket != "all" and record["confidence_class"] != bucket):
+            continue
+        posts = [post for post in record["analysis"]["post_candidates"] if post.get("structural_post", False)]
+        items.append({
+            "record_name": path.name, "filename": record["analysis"]["filename"],
+            "source_path": record["source_path"], "project": record["project"],
+            "confidence_class": record["confidence_class"], "mean_post_confidence": record["mean_post_confidence"],
+            "analysis_size": record["analysis"]["analysis_size"], "posts": posts,
+            "image_url": f"/batch-review/{job_id}/image/{path.name}",
+        })
+        if len(items) >= max(1, min(limit, 200)):
+            break
+    return {"job_id": job_id, "bucket": bucket, "counts": counts, "items": items}
+
+
+@app.get("/batch-review/{job_id}/image/{record_name}")
+def batch_review_image(job_id: str, record_name: str):
+    _path, record = existing_batch_record(job_id, record_name)
+    source = Path(record["source_path"])
+    if not source.is_file():
+        raise HTTPException(status_code=404, detail="La imagen original ya no existe.")
+    return FileResponse(source)
+
+
+@app.post("/batch-review/{job_id}/decision")
+def batch_review_decision(job_id: str, payload: ReviewDecisionRequest) -> dict:
+    if payload.decision not in {"approved", "rejected"}:
+        raise HTTPException(status_code=422, detail="La decisión debe ser approved o rejected.")
+    record_path, record = existing_batch_record(job_id, payload.record_name)
+    if record.get("review", {}).get("decision") == "approved":
+        return {"ok": True, "decision": "approved", "already_saved": True}
+    example_path = None
+    if payload.decision == "approved":
+        source = Path(record["source_path"])
+        example_id = f"ejemplo_batch_{record['sha256'][:12]}"
+        example_dir = training_dataset_dir() / example_id
+        example_dir.mkdir(parents=True, exist_ok=True)
+        image_name = f"vista_01{source.suffix.lower()}"
+        shutil.copy2(source, example_dir / image_name)
+        size = record["analysis"]["analysis_size"]
+        posts = [post for post in record["analysis"]["post_candidates"] if post.get("structural_post", False)]
+        annotation_posts = [{
+            "post_index": index, "x": post["x_px"], "top_y": post["top_y_px"],
+            "bottom_y": post["bottom_y_px"], "confirmed": True,
+        } for index, post in enumerate(posts)]
+        annotation = {
+            "schema_version": 1, "example_id": example_id, "analysis_id": job_id,
+            "module_internal_mm": 1168.4,
+            "images": [{"index": 1, "original_name": source.name, "file": image_name}],
+            "views": [{"view_index": 1, "image_width": size["width"], "image_height": size["height"], "posts": annotation_posts}],
+            "anchor_views": {}, "correspondences": [], "training_scope": "post_detection",
+            "known_dimensions": {}, "source": "batch_review_user_confirmed",
+            "labels": {"post": "poste estructural vertical", "endpoint_order": ["top", "bottom"]},
+        }
+        (example_dir / "annotations.json").write_text(json.dumps(annotation, ensure_ascii=False, indent=2), encoding="utf-8")
+        example_path = str(example_dir)
+    record["review"] = {"decision": payload.decision, "reviewed_at": datetime.now(timezone.utc).isoformat(), "source": "user_confirmation"}
+    record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "decision": payload.decision, "example_path": example_path}
+
+
+@app.post("/batch-review/{job_id}/train")
+def batch_review_train(job_id: str) -> dict:
+    existing_batch_dir(job_id)
+    return train_post_detector()
 
 
 def post_model_path() -> Path:

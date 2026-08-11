@@ -192,6 +192,29 @@ module PlayIdea
       end
     end
 
+    def start_batch_review
+      batches = Dir.glob(File.join(synthetic_dataset_root, 'batch_imports', 'batch_*')).select { |path| File.directory?(path) }
+      if batches.length.zero?
+        UI.messagebox('Primero ejecuta un análisis de carpetas IMAGES-TM.')
+        return
+      end
+      latest = batches.max_by { |path| File.mtime(path) }
+      api = start_local_api
+      unless api[:ok]
+        UI.messagebox(api[:message])
+        return
+      end
+      @review_dialog&.close
+      @review_dialog = UI::HtmlDialog.new(dialog_title: 'Revisión rápida de postes', preferences_key: 'PlayIdeaBatchReview', scrollable: true, resizable: true, width: 1050, height: 820, style: UI::HtmlDialog::STYLE_DIALOG)
+      @review_dialog.set_file(File.join(__dir__, 'batch_review.html'))
+      @review_dialog.add_action_callback('ready') do |_context|
+        @review_dialog.execute_script("loadBatchReview(#{JSON.generate(api_url: "http://#{API_HOST}:#{API_PORT}", job_id: File.basename(latest))})")
+      end
+      @review_dialog.show
+    rescue StandardError => error
+      UI.messagebox("No fue posible abrir la revisión:\n#{error.message}")
+    end
+
     def validate_metric_plan(payload)
       zones = payload['zones'] if payload.is_a?(Hash)
       unless zones.is_a?(Array) && zones.length.between?(1, 20)
@@ -313,6 +336,7 @@ module PlayIdea
       )
       menu.add_item('Cargar vistas de un juego') { start }
       menu.add_item('Analizar carpetas IMAGES-TM por lotes') { start_batch_import }
+      menu.add_item('Revisar y aprobar detecciones') { start_batch_review }
       menu.add_item('Generar dataset sintético de postes') { generate_synthetic_dataset }
       file_loaded(__FILE__)
     end
