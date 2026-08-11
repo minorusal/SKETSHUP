@@ -120,6 +120,8 @@ Flujo esperado:
 - Reentrenar el detector local al guardar cada ejemplo válido y registrar cantidad de ejemplos/muestras. Considerar el modelo experimental mientras no haya diversidad de juegos; evaluar siempre sobre un juego no usado para entrenamiento.
 - Tratar la altura obtenida por razón entre longitud proyectada del poste y paso modular proyectado como provisional. Mostrar niveles, milímetros, punta y base sobre la imagen; no usarla todavía para construir hasta validarla entre vistas o contra niveles horizontales.
 - Separar clasificación y localización: el clasificador decide si un candidato es poste; regresores distintos corrigen centro X, punta y base usando las anotaciones confirmadas. Reentrenar ambos con candidatos crudos, nunca con coordenadas ya corregidas por el modelo anterior.
+- Aceptar verdad dimensional opcional del usuario para acelerar el aprendizaje: secuencias independientes de tramos X/Y de `1168.4 mm` o `584.2 mm`, altura total conocida y tipo de cada vista (frontal, lateral, posterior o isométrica). Marcarla como `user_ground_truth`, usarla inmediatamente para calibrar la planta métrica y conservarla junto con las imágenes y postes confirmados.
+- No mezclar verdad dimensional con estimaciones visuales. Los ejemplos con medidas conocidas deben servir posteriormente para entrenar y evaluar un predictor de escala, cantidad de tramos y altura; al analizar imágenes sin medidas, el predictor debe reportar confianza y mantener sus resultados como provisionales hasta superar validación multivista.
 
 ## Verificación mínima
 

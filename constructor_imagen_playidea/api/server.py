@@ -12,10 +12,10 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.15.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.17.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,7 +26,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.15.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.17.0"}
 
 
 class EncodedImage(BaseModel):
@@ -38,6 +38,7 @@ class JsonAnalysisRequest(BaseModel):
     case_id: str = "sin_codigo"
     module_internal_mm: float = 1168.4
     images: list[EncodedImage]
+    known_dimensions: dict = Field(default_factory=dict)
 
 
 class TrainingExampleRequest(BaseModel):
@@ -47,6 +48,7 @@ class TrainingExampleRequest(BaseModel):
     views: list[dict]
     anchor_views: dict
     correspondences: list[dict]
+    known_dimensions: dict = Field(default_factory=dict)
 
 
 def training_dataset_dir() -> Path:
@@ -244,6 +246,7 @@ def save_training_example(payload: TrainingExampleRequest) -> dict:
             "anchor_views": payload.anchor_views,
             "correspondences": payload.correspondences,
             "training_scope": "multiview_geometry" if len(payload.correspondences) >= 4 else "post_detection",
+            "known_dimensions": payload.known_dimensions,
             "labels": {"post": "poste estructural vertical", "endpoint_order": ["top", "bottom"]},
         }
         (example_dir / "annotations.json").write_text(
@@ -671,9 +674,23 @@ def build_topological_plan(module_internal_mm: float, metric_plan: dict, multivi
     }
 
 
-def analysis_response(views: list[dict], case_id: str, module_internal_mm: float, multiview: dict) -> dict:
+def analysis_response(views: list[dict], case_id: str, module_internal_mm: float, multiview: dict, known_dimensions: dict | None = None) -> dict:
     totals = {key: sum(view["line_counts"][key] for view in views) for key in ("horizontal", "vertical", "diagonal")}
     metric_plan = build_metric_plan(module_internal_mm, views, multiview)
+    known_dimensions = known_dimensions or {}
+    spacing_x = known_dimensions.get("spacing_x_mm") or []
+    spacing_y = known_dimensions.get("spacing_y_mm") or []
+    if spacing_x and spacing_y:
+        height_mm = float(known_dimensions.get("height_mm") or module_internal_mm)
+        levels = max(1, min(20, round(height_mm / module_internal_mm)))
+        metric_plan = {
+            "status": "confirmed_dimensions",
+            "module_internal_mm": module_internal_mm,
+            "grid_width_modules": len(spacing_x), "grid_depth_modules": len(spacing_y),
+            "spacing_x_mm": spacing_x, "spacing_y_mm": spacing_y, "height_mm": height_mm,
+            "zones": [{"id": "estructura_confirmada", "label": "Estructura confirmada", "kind": "modular", "x": 0, "y": 0, "width": len(spacing_x), "depth": len(spacing_y), "levels": levels, "confidence": 1.0, "source": "user_ground_truth"}],
+            "message": "Cuadrícula fijada con medidas conocidas proporcionadas por el usuario.",
+        }
     return {
         "analysis_id": str(uuid.uuid4()),
         "case_id": case_id,
@@ -685,6 +702,7 @@ def analysis_response(views: list[dict], case_id: str, module_internal_mm: float
         "multiview": multiview,
         "topology": build_topological_plan(module_internal_mm, metric_plan, multiview),
         "metric_plan": metric_plan,
+        "known_dimensions": known_dimensions,
         "next_stage": "confirm_metric_grid" if metric_plan["zones"] else "request_clearer_views",
     }
 
@@ -709,7 +727,7 @@ def analyze_json(payload: JsonAnalysisRequest) -> dict:
         views.append(analyze_image(raw, image.name or "imagen"))
         raw_images.append((raw, image.name or "imagen"))
     multiview = multiview_correspondence(raw_images, views)
-    return analysis_response(views, payload.case_id, payload.module_internal_mm, multiview)
+    return analysis_response(views, payload.case_id, payload.module_internal_mm, multiview, payload.known_dimensions)
 
 
 @app.post("/analyze")

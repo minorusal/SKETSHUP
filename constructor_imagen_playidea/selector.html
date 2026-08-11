@@ -25,6 +25,7 @@
     #correspondence{display:none;margin-top:12px;padding:12px;border:2px solid #2877a8;border-radius:8px;background:#f5faff}.pair-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px}.pair-view{position:relative;background:#172334}.pair-view img{display:block;width:100%;height:auto}.pair-view svg{position:absolute;inset:0;width:100%;height:100%}.pair-post{stroke:#c6d0da;stroke-width:5;vector-effect:non-scaling-stroke;cursor:pointer}.pair-post.selected{stroke:#00e5ff;stroke-width:8}.pair-hit{stroke:transparent;stroke-width:22;vector-effect:non-scaling-stroke;cursor:pointer}.pair-label{font:bold 24px Arial;paint-order:stroke;stroke:#fff;stroke-width:5px;stroke-linejoin:round}.pair-summary{margin:9px 0;font-size:12px}.pair-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}.pair-actions .clear{background:#8b3c32}
     #metricPlan{display:none;margin-top:12px;padding:12px;border:1px solid #b9c7d4;border-radius:8px;background:white}#metricPlan svg{width:100%;max-height:520px}.metric-table{width:100%;border-collapse:collapse;font-size:11px}.metric-table th,.metric-table td{padding:4px;border-bottom:1px solid #dce4eb;text-align:center}.metric-table input{width:58px;padding:4px}.apply-grid{margin-top:8px;background:#1976a8}
     .warning{padding:10px;border-left:4px solid #e6a318;background:#fff7df;color:#604900;font-size:12px;line-height:1.45}
+    .known-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px}.preview select{width:calc(100% - 12px);margin:0 6px 6px;padding:5px;border:1px solid #b9c7d4;border-radius:5px;font-size:10px}
   </style>
 </head>
 <body>
@@ -35,7 +36,12 @@
       <div class="facts"><div class="fact"><b>Caso</b><span id="caseId">—</span></div><div class="fact"><b>Módulo interior</b><span id="moduleSize">—</span></div></div>
     </section>
     <section class="card">
-      <h2>2. Cargar las vistas</h2>
+      <h2>2. Medidas conocidas (opcionales y usadas para aprendizaje)</h2>
+      <div class="known-grid"><div><label for="knownX">Tramos X</label><input id="knownX" placeholder="Ej. 1, 1, 0.5, 1"></div><div><label for="knownY">Tramos Y</label><input id="knownY" placeholder="Ej. 1, 0.5, 1"></div><div><label for="knownHeight">Altura total (m)</label><input id="knownHeight" type="number" min="0" step="0.01" placeholder="Ej. 3.50"></div></div>
+      <div class="topology-note">Usa 1 para 1168.4 mm y 0.5 para 584.2 mm. Puedes dejar todo vacío si desconoces las medidas.</div>
+    </section>
+    <section class="card">
+      <h2>3. Cargar las vistas</h2>
       <label for="images">Selecciona una o varias imágenes. Puedes abrir este selector varias veces para agregarlas una por una.</label>
       <input id="images" type="file" accept="image/*,.jpg,.jpeg,.jpe,.png,.webp" multiple>
       <div id="imageCount" class="fact" style="margin-top:9px">Todavía no hay imágenes agregadas.</div>
@@ -84,7 +90,8 @@
         const box=document.createElement('div');box.className='preview';
         const img=document.createElement('img');img.alt=file.name;
         const caption=document.createElement('span');caption.textContent=file.name;
-        box.append(img,caption);$('previews').appendChild(box);
+        const type=document.createElement('select');[['auto','Tipo automático'],['front','Frontal'],['side','Lateral'],['rear','Posterior'],['iso','Isométrica']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;type.appendChild(option)});type.value=file.viewType||'auto';type.onchange=()=>file.viewType=type.value;
+        box.append(img,caption,type);$('previews').appendChild(box);
         img.src=file.dataUrl;
       });
       $('imageCount').textContent=state.files.length===0?'Todavía no hay imágenes agregadas.':`${state.files.length} imagen${state.files.length===1?'':'es'} agregada${state.files.length===1?'':'s'} (máximo 8).`;
@@ -104,7 +111,7 @@
         const key=`${file.name}|${file.size}|${file.lastModified}`;
         if(!known.has(key)&&state.files.length<8){
           const dataUrl=await readAsDataURL(file);
-          state.files.push({name:file.name,type:file.type,size:file.size,lastModified:file.lastModified,dataUrl});
+          state.files.push({name:file.name,type:file.type,size:file.size,lastModified:file.lastModified,dataUrl,viewType:'auto'});
           known.add(key);
         }
       }
@@ -112,8 +119,15 @@
       renderPreviews();
       showStatus('Imágenes listas para el análisis local.');
     });
+    function parseKnownDimensions(){
+      const parseAxis=(value,label)=>{if(!value.trim())return[];return value.split(',').map(token=>{const number=Number(token.trim());if(number===1)return 1168.4;if(number===0.5)return 584.2;if(Math.abs(number-1.1684)<0.0001)return 1168.4;if(Math.abs(number-0.5842)<0.0001)return 584.2;throw new Error(`${label}: usa solamente 1, 0.5, 1.1684 o 0.5842`)})};
+      const spacingX=parseAxis($('knownX').value,'Tramos X'),spacingY=parseAxis($('knownY').value,'Tramos Y');const heightM=Number($('knownHeight').value||0);
+      if((spacingX.length||spacingY.length||heightM>0)&&(!spacingX.length||!spacingY.length||heightM<=0))throw new Error('Para usar medidas conocidas completa X, Y y altura total.');
+      return spacingX.length?{spacing_x_mm:spacingX,spacing_y_mm:spacingY,height_mm:heightM*1000,total_x_mm:spacingX.reduce((a,b)=>a+b,0),total_y_mm:spacingY.reduce((a,b)=>a+b,0),view_types:state.files.map(file=>file.viewType||'auto'),source:'user_ground_truth'}:{};
+    }
     $('prepare').addEventListener('click',async()=>{
-      const payload={case_id:state.reference.id,module_internal_mm:state.reference.module_internal_mm,images:state.files.map(file=>({name:file.name,data_url:file.dataUrl}))};
+      let knownDimensions;try{knownDimensions=parseKnownDimensions()}catch(error){showStatus(error.message,'error');return}
+      const payload={case_id:state.reference.id,module_internal_mm:state.reference.module_internal_mm,known_dimensions:knownDimensions,images:state.files.map(file=>({name:file.name,data_url:file.dataUrl}))};
       $('prepare').disabled=true;$('result').style.display='none';
       $('analysisPreviews').innerHTML='';
       $('multiviewSummary').style.display='none';
@@ -129,7 +143,7 @@
           throw new Error(detail||`Error HTTP ${response.status}`);
         }
         showStatus(`Análisis ${result.analysis_id.slice(0,8)} terminado: ${result.image_count} vistas, ${result.totals.vertical} líneas verticales, ${result.totals.horizontal} horizontales y ${result.totals.diagonal} diagonales.`);
-        state.analysis=result;state.postEdits=[];state.pairs=[];state.selectedLeft=null;
+        state.analysis=result;state.knownDimensions=knownDimensions;state.postEdits=[];state.pairs=[];state.selectedLeft=null;
         result.views.forEach((view,index)=>renderPostEditor(view,index));
         const mv=result.multiview;
         const totalInliers=mv.pairs.reduce((sum,pair)=>sum+pair.geometric_inliers,0);
@@ -222,7 +236,8 @@
         images:state.files.map(file=>({name:file.name,data_url:file.dataUrl})),
         views:state.postEdits.map((view,index)=>({view_index:index+1,image_width:view.width,image_height:view.height,posts:view.marks.map((mark,postIndex)=>({post_index:postIndex,x:mark.x,top_y:mark.y1,bottom_y:mark.y2,provisional_levels:mark.levels,provisional_height_mm:mark.height_mm,confirmed:true}))})),
         anchor_views:{front_view:leftIndex+1,depth_view:rightIndex+1},
-        correspondences:state.pairs.map(pair=>({id:pair.id,front_post_index:pair.left,depth_post_index:pair.right}))
+        correspondences:state.pairs.map(pair=>({id:pair.id,front_post_index:pair.left,depth_post_index:pair.right})),
+        known_dimensions:state.knownDimensions||{}
       };
       showStatus('Guardando imágenes y correcciones en el dataset local…','working');$('finishPairs').disabled=true;
       try{
