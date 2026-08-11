@@ -2,7 +2,6 @@ require 'sketchup.rb'
 require 'json'
 require 'fileutils'
 require 'net/http'
-require_relative 'synthetic_dataset'
 
 module PlayIdea
   module ConstructorImagen
@@ -16,6 +15,10 @@ module PlayIdea
       module_internal_mm: MODULE_INTERNAL_MM,
       status: 'structure_and_connectors_only'
     }.freeze
+
+    # El dataset usa las constantes dimensionales anteriores, por lo que debe
+    # cargarse solamente después de definir el contrato base del plugin.
+    require_relative 'synthetic_dataset'
 
     def start
       unless defined?(UI::HtmlDialog)
