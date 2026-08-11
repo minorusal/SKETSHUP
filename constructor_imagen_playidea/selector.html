@@ -17,6 +17,9 @@
     ul{margin:6px 0 0;padding-left:20px;font-size:12px;line-height:1.55}.special{color:#8c5100}
     button{width:100%;padding:12px;border:0;border-radius:7px;background:#e66c18;color:white;font-weight:bold;cursor:pointer}button:disabled{background:#9da9b2;cursor:not-allowed}
     #status{display:none;margin-top:11px;padding:10px;border-radius:6px;background:#e8f7ed;color:#176332;font-size:12px}
+    #status.error{background:#fdeaea;color:#8b1d1d}#status.working{background:#eaf3fb;color:#174d7b}
+    .spinner{display:inline-block;width:13px;height:13px;margin-right:7px;border:2px solid #8fb2d2;border-top-color:#174d7b;border-radius:50%;vertical-align:-2px;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+    #result{display:none;margin-top:10px;padding:10px;max-height:220px;overflow:auto;border-radius:6px;background:#152536;color:#d7ecff;font:11px/1.45 monospace;white-space:pre-wrap}
     .warning{padding:10px;border-left:4px solid #e6a318;background:#fff7df;color:#604900;font-size:12px;line-height:1.45}
   </style>
 </head>
@@ -35,24 +38,42 @@
       <div id="previews"></div>
     </section>
     <section class="card">
-      <h2>3. Subensambles reconocidos en el caso</h2>
+      <h2>3. Referencia manual precargada del caso</h2>
       <ul id="zones"></ul>
     </section>
     <section class="card">
-      <div class="warning"><b>Alcance de esta versión:</b> comprueba que SketchUp abre el plugin, muestra varias imágenes y comunica sus metadatos a Ruby. Todavía no envía imágenes a una IA ni crea geometría.</div>
-      <button id="prepare" disabled>Preparar las vistas para análisis</button>
+      <div class="warning"><b>Alcance de esta versión:</b> OpenCV analizará localmente bordes, líneas, orientaciones y candidatos a postes. Todavía no crea la geometría 3D.</div>
+      <button id="prepare" disabled>Analizar vistas localmente</button>
       <div id="status"></div>
+      <pre id="result"></pre>
     </section>
   </main>
   <script>
-    const state={reference:null,files:[]};
+    const state={reference:null,files:[],apiReady:false};
     const $=id=>document.getElementById(id);
     window.loadReference=data=>{
       state.reference=data;
       $('caseId').textContent=data.id;
       $('moduleSize').textContent=`${data.module_internal_mm} mm (${(data.module_internal_mm/1000).toFixed(4)} m)`;
       $('zones').innerHTML=data.zones.map(zone=>`<li class="${zone.specialized?'special':''}">${zone.label} — confianza ${Math.round(zone.confidence*100)}%${zone.specialized?' · generador especializado':''}</li>`).join('');
+      if(!data.api_started){showStatus(data.api_message||'La API local no pudo iniciarse.','error')}
+      else{waitForApi()}
     };
+    function showStatus(message,kind='ok'){
+      $('status').style.display='block';$('status').className=kind;
+      $('status').innerHTML=kind==='working'?`<span class="spinner"></span>${message}`:message;
+    }
+    async function waitForApi(){
+      showStatus('Iniciando el servicio local de OpenCV…','working');
+      for(let attempt=0;attempt<30;attempt++){
+        try{
+          const response=await fetch(`${state.reference.api_url}/health`);
+          if(response.ok){state.apiReady=true;showStatus('Servicio local de OpenCV listo.');$('prepare').disabled=state.files.length<1;return}
+        }catch(_error){}
+        await new Promise(resolve=>setTimeout(resolve,500));
+      }
+      showStatus('No respondió la API local. Revisa el archivo de registro de Play Idea.','error');
+    }
     function renderPreviews(){
       $('previews').innerHTML='';
       state.files.forEach(file=>{
@@ -63,7 +84,7 @@
         const reader=new FileReader();reader.onload=()=>{img.src=reader.result};reader.readAsDataURL(file);
       });
       $('imageCount').textContent=state.files.length===0?'Todavía no hay imágenes agregadas.':`${state.files.length} imagen${state.files.length===1?'':'es'} agregada${state.files.length===1?'':'s'} (máximo 8).`;
-      $('prepare').disabled=state.files.length<1;
+      $('prepare').disabled=state.files.length<1||!state.apiReady;
     }
     $('images').addEventListener('change',event=>{
       const incoming=Array.from(event.target.files||[]);
@@ -75,16 +96,22 @@
       event.target.value='';
       renderPreviews();
     });
-    $('prepare').addEventListener('click',()=>{
-      const images=state.files.map(file=>({name:file.name,type:file.type,size:file.size,last_modified:file.lastModified}));
-      $('prepare').disabled=true;
-      sketchup.prepareAnalysis({case_id:state.reference.id,module_internal_mm:state.reference.module_internal_mm,images});
+    $('prepare').addEventListener('click',async()=>{
+      const form=new FormData();
+      state.files.forEach(file=>form.append('images',file,file.name));
+      form.append('case_id',state.reference.id);
+      form.append('module_internal_mm',state.reference.module_internal_mm);
+      $('prepare').disabled=true;$('result').style.display='none';
+      showStatus(`Analizando ${state.files.length} vista${state.files.length===1?'':'s'} con OpenCV…`,'working');
+      try{
+        const response=await fetch(`${state.reference.api_url}/analyze`,{method:'POST',body:form});
+        const result=await response.json();
+        if(!response.ok) throw new Error(result.detail||`Error HTTP ${response.status}`);
+        showStatus(`Análisis ${result.analysis_id.slice(0,8)} terminado: ${result.image_count} vistas, ${result.totals.vertical} líneas verticales, ${result.totals.horizontal} horizontales y ${result.totals.diagonal} diagonales.`);
+        $('result').textContent=JSON.stringify(result,null,2);$('result').style.display='block';
+      }catch(error){showStatus(`No fue posible analizar las imágenes: ${error.message}`,'error')}
+      finally{$('prepare').disabled=state.files.length<1||!state.apiReady}
     });
-    window.analysisPrepared=result=>{
-      $('status').style.display='block';
-      $('status').textContent=`Correcto: ${result.image_count} vistas preparadas. ${result.message}`;
-      $('prepare').disabled=false;
-    };
     document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
   </script>
 </body>
