@@ -22,6 +22,7 @@
     #result{display:none;margin-top:10px;padding:10px;max-height:220px;overflow:auto;border-radius:6px;background:#152536;color:#d7ecff;font:11px/1.45 monospace;white-space:pre-wrap}
     #analysisPreviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:12px}.analysis-view{overflow:hidden;border:1px solid #b9c7d4;border-radius:7px;background:#fff}.analysis-view img{display:block;width:100%;height:auto}.analysis-view div{padding:8px;font-size:11px;line-height:1.4}
     #topology{display:none;margin-top:12px;padding:10px;border:1px solid #b9c7d4;border-radius:8px;background:#f8fbfe}#topology svg{display:block;width:100%;height:auto}.topology-note{font-size:11px;color:#526577;margin-top:6px}
+    #metricPlan{display:none;margin-top:12px;padding:12px;border:1px solid #b9c7d4;border-radius:8px;background:white}#metricPlan svg{width:100%;max-height:520px}.metric-table{width:100%;border-collapse:collapse;font-size:11px}.metric-table th,.metric-table td{padding:4px;border-bottom:1px solid #dce4eb;text-align:center}.metric-table input{width:58px;padding:4px}.apply-grid{margin-top:8px;background:#1976a8}
     .warning{padding:10px;border-left:4px solid #e6a318;background:#fff7df;color:#604900;font-size:12px;line-height:1.45}
   </style>
 </head>
@@ -50,6 +51,7 @@
       <div id="analysisPreviews"></div>
       <div id="multiviewSummary" class="fact" style="display:none;margin-top:12px"></div>
       <div id="topology"></div>
+      <div id="metricPlan"></div>
       <pre id="result"></pre>
     </section>
   </main>
@@ -119,6 +121,7 @@
       $('analysisPreviews').innerHTML='';
       $('multiviewSummary').style.display='none';
       $('topology').style.display='none';
+      $('metricPlan').style.display='none';
       showStatus(`Analizando ${state.files.length} vista${state.files.length===1?'':'s'} con OpenCV…`,'working');
       try{
         const response=await fetch(`${state.reference.api_url}/analyze-json`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -141,6 +144,7 @@
         $('multiviewSummary').style.display='block';
         $('multiviewSummary').innerHTML=`<b>Cruce multivista</b>Vista frontal de referencia: ${mv.front_anchor_view}. Vista de profundidad: ${mv.depth_anchor_view}. ${mv.strong_pair_count} de ${mv.pair_count} pares fuertes; ${totalInliers} correspondencias geométricas confirmadas. Estado: ${mv.status}.`;
         renderTopology(result.topology);
+        renderMetricPlan(result.metric_plan);
         const compact={...result,views:result.views.map(view=>{const copy={...view};delete copy.overlay_data_url;return copy})};
         $('result').textContent=JSON.stringify(compact,null,2);$('result').style.display='block';
       }catch(error){showStatus(`No fue posible analizar las imágenes: ${error.message}`,'error')}
@@ -154,6 +158,25 @@
       const nodes=plan.nodes.map(node=>`<g><circle cx="${node.x}" cy="${node.y}" r="6" fill="${colors[node.kind]}" stroke="white" stroke-width="1.5"/><text x="${node.x}" y="${node.y+10}" text-anchor="middle" font-size="3.2" fill="#17324c">${node.label}</text><text x="${node.x}" y="${node.y+14}" text-anchor="middle" font-size="2.6" fill="#60788d">${node.levels} nivel${node.levels===1?'':'es'} · ${Math.round(node.confidence*100)}%</text></g>`).join('');
       $('topology').innerHTML=`<b>Planta topológica provisional</b><svg viewBox="0 0 100 100" role="img" aria-label="Conexiones del juego">${edges}${nodes}</svg><div class="topology-note">Las conexiones están confirmadas por referencia manual y cruce multivista. Las posiciones todavía no representan distancias exactas; la siguiente fase las ajustará a la cuadrícula de ${plan.module_internal_mm} mm.</div>`;
       $('topology').style.display='block';
+    }
+    function renderMetricPlan(plan){
+      if(!plan||!plan.zones.length)return;
+      state.metricPlan=plan;
+      const rows=plan.zones.map(zone=>`<tr><td>${zone.label}</td>${['x','y','width','depth','levels'].map(key=>`<td><input type="number" min="${key==='x'||key==='y'?0:1}" step="1" data-zone="${zone.id}" data-key="${key}" value="${zone[key]}"></td>`).join('')}</tr>`).join('');
+      $('metricPlan').innerHTML=`<b>Cuadrícula métrica editable</b><div id="metricDrawing"></div><table class="metric-table"><thead><tr><th>Zona</th><th>X</th><th>Y</th><th>Ancho</th><th>Fondo</th><th>Niveles</th></tr></thead><tbody>${rows}</tbody></table><button class="apply-grid" id="applyGrid">Aplicar cambios a la planta</button><div class="topology-note">Cada cuadro mide ${plan.module_internal_mm} mm internamente. Estos valores son provisionales y deben validarse antes de crear geometría.</div>`;
+      $('metricPlan').style.display='block';
+      drawMetricPlan();
+      $('applyGrid').onclick=()=>{
+        $('metricPlan').querySelectorAll('input[data-zone]').forEach(input=>{const zone=state.metricPlan.zones.find(item=>item.id===input.dataset.zone);zone[input.dataset.key]=Math.max(+(input.min||0),Math.round(+input.value||0))});
+        drawMetricPlan();showStatus('Cuadrícula provisional actualizada en esta sesión.');
+      };
+    }
+    function drawMetricPlan(){
+      const plan=state.metricPlan,cell=36,pad=24,w=plan.grid_width_modules*cell+pad*2,h=plan.grid_depth_modules*cell+pad*2;
+      let grid='';for(let x=0;x<=plan.grid_width_modules;x++)grid+=`<line x1="${pad+x*cell}" y1="${pad}" x2="${pad+x*cell}" y2="${h-pad}" stroke="#d9e2ea"/>`;for(let y=0;y<=plan.grid_depth_modules;y++)grid+=`<line x1="${pad}" y1="${pad+y*cell}" x2="${w-pad}" y2="${pad+y*cell}" stroke="#d9e2ea"/>`;
+      const colors={modular:'#1596d2aa',special:'#e56b18aa',accessory:'#60a832aa'};
+      const zones=plan.zones.map(z=>`<g><rect x="${pad+z.x*cell}" y="${pad+(plan.grid_depth_modules-z.y-z.depth)*cell}" width="${z.width*cell}" height="${z.depth*cell}" fill="${colors[z.kind]}" stroke="#17324c" stroke-width="2"/><text x="${pad+(z.x+z.width/2)*cell}" y="${pad+(plan.grid_depth_modules-z.y-z.depth/2)*cell}" text-anchor="middle" font-size="12" fill="white">${z.label} · ${z.levels}N</text></g>`).join('');
+      $('metricDrawing').innerHTML=`<svg viewBox="0 0 ${w} ${h}">${grid}${zones}</svg>`;
     }
     document.addEventListener('DOMContentLoaded',()=>sketchup.ready());
   </script>

@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.6.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.7.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,7 +24,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.6.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.7.0"}
 
 
 class EncodedImage(BaseModel):
@@ -353,6 +353,26 @@ def build_topological_plan(case_id: str, module_internal_mm: float, multiview: d
     }
 
 
+def build_metric_plan(case_id: str, module_internal_mm: float) -> dict:
+    if case_id != "Pi.03315":
+        return {"status": "unsupported_case", "zones": []}
+    return {
+        "status": "editable_provisional",
+        "module_internal_mm": module_internal_mm,
+        "grid_width_modules": 12,
+        "grid_depth_modules": 10,
+        "zones": [
+            {"id": "jaula", "label": "Jaula", "kind": "modular", "x": 0, "y": 4, "width": 4, "depth": 2, "levels": 2},
+            {"id": "transiciones", "label": "Transiciones", "kind": "modular", "x": 3, "y": 2, "width": 2, "depth": 2, "levels": 1},
+            {"id": "centro", "label": "Centro", "kind": "modular", "x": 4, "y": 4, "width": 5, "depth": 3, "levels": 2},
+            {"id": "cancha", "label": "Cancha", "kind": "accessory", "x": 7, "y": 1, "width": 2, "depth": 1, "levels": 1},
+            {"id": "tobogan", "label": "Tobogán", "kind": "special", "x": 6, "y": 2, "width": 4, "depth": 2, "levels": 1},
+            {"id": "puente", "label": "Puente", "kind": "special", "x": 4, "y": 8, "width": 5, "depth": 1, "levels": 1},
+            {"id": "torre", "label": "Torre", "kind": "special", "x": 9, "y": 7, "width": 2, "depth": 2, "levels": 3},
+        ],
+    }
+
+
 def analysis_response(views: list[dict], case_id: str, module_internal_mm: float, multiview: dict) -> dict:
     totals = {key: sum(view["line_counts"][key] for view in views) for key in ("horizontal", "vertical", "diagonal")}
     return {
@@ -365,7 +385,8 @@ def analysis_response(views: list[dict], case_id: str, module_internal_mm: float
         "views": views,
         "multiview": multiview,
         "topology": build_topological_plan(case_id, module_internal_mm, multiview),
-        "next_stage": "metric_grid_embedding",
+        "metric_plan": build_metric_plan(case_id, module_internal_mm),
+        "next_stage": "confirm_metric_grid",
     }
 
 
