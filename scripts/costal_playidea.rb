@@ -350,27 +350,41 @@ module PlayIdeaCostalScript
     paint_new_faces(entities, material)
   end
 
-  # Domo poco profundo -perfil de cuarto de círculo, mismo truco que
-  # `add_dome` en tornilleria_playidea.rb- que remata la tapa por
-  # arriba. A diferencia de un bolt -que sí cierra en punta-, este domo
-  # se DETIENE justo en el radio del hueco del poste -`hole_r_mm`- en
-  # vez de llegar a radio 0, así el hueco sigue pasando de lado a lado
-  # sin que el domo lo tape.
-  def build_tapa_dome(entities, base_r_mm, rise_mm, hole_r_mm, z0_mm, steps: 8)
+  def dome_profile(base_r_mm, rise_mm, hole_r_mm, z0_mm, steps)
     ratio = [[hole_r_mm / base_r_mm, 1.0].min, 0.0].max
     angle_stop = Math.acos(ratio)
-    return if angle_stop < 0.02
+    return [] if angle_stop < 0.02
 
     vertical_scale = rise_mm / Math.sin(angle_stop)
-    profile = (0..steps).map do |i|
+    (0..steps).map do |i|
       angle = (i.to_f / steps) * angle_stop
       [base_r_mm * Math.cos(angle), z0_mm + (vertical_scale * Math.sin(angle))]
     end
+  end
+
+  # Domo hueco con espesor real. Genera la cara exterior, la cara interior
+  # desplazada TAPA_THICKNESS_MM y la pared circular del hueco; ambas caras
+  # enlazan directamente con su pared correspondiente del faldón. El PVC
+  # sigue pasando de lado a lado, pero la tapa ya no queda abierta.
+  def build_tapa_dome(entities, outer_base_r_mm, inner_base_r_mm, rise_mm, hole_r_mm, z0_mm, steps: 8)
+    outer_profile = dome_profile(outer_base_r_mm, rise_mm, hole_r_mm, z0_mm, steps)
+    inner_z0_mm = z0_mm - TAPA_THICKNESS_MM
+    inner_profile = dome_profile(inner_base_r_mm, rise_mm, hole_r_mm, inner_z0_mm, steps)
+    return if outer_profile.empty? || inner_profile.empty?
+
     steps.times do |i|
-      r0, z0i = profile[i]
-      r1, z1i = profile[i + 1]
+      r0, z0i = outer_profile[i]
+      r1, z1i = outer_profile[i + 1]
       add_cone_wall(entities, r0.mm, r1.mm, z0i.mm, z1i.mm)
+
+      r0, z0i = inner_profile[i]
+      r1, z1i = inner_profile[i + 1]
+      add_cone_wall(entities, r1.mm, r0.mm, z1i.mm, z0i.mm)
     end
+
+    _outer_hole_r, outer_hole_z = outer_profile.last
+    _inner_hole_r, inner_hole_z = inner_profile.last
+    add_wall(entities, hole_r_mm.mm, inner_hole_z.mm, outer_hole_z.mm)
   end
 
   # Tapa desmontable -"como la tapa de una botella, una taparrosca SIN
@@ -381,13 +395,21 @@ module PlayIdeaCostalScript
   # REDONDEADO -build_tapa_dome-, no un disco plano con esquina viva.
   def build_tapa_lid(entities, model, hex)
     skirt_z0 = CYLINDER_LENGTH_MM
-    skirt_z1 = CYLINDER_LENGTH_MM + TAPA_SKIRT_HEIGHT_MM
+    outer_skirt_z1 = CYLINDER_LENGTH_MM + TAPA_SKIRT_HEIGHT_MM
+    inner_skirt_z1 = outer_skirt_z1 - TAPA_THICKNESS_MM
     outer_r = TAPA_OUTER_R_MM.mm
     inner_r = (TAPA_OUTER_R_MM - TAPA_THICKNESS_MM).mm
-    add_wall(entities, outer_r, skirt_z0.mm, skirt_z1.mm)
-    add_wall(entities, inner_r, skirt_z0.mm, skirt_z1.mm)
+    add_wall(entities, outer_r, skirt_z0.mm, outer_skirt_z1.mm)
+    add_wall(entities, inner_r, skirt_z0.mm, inner_skirt_z1.mm)
     add_ring(entities, inner_r, outer_r, skirt_z0.mm) # remate abierto del faldón, ras con la punta del tubo
-    build_tapa_dome(entities, TAPA_OUTER_R_MM, TAPA_DOME_RISE_MM, POST_HOLE_RADIUS_MM, skirt_z1)
+    build_tapa_dome(
+      entities,
+      TAPA_OUTER_R_MM,
+      TAPA_OUTER_R_MM - TAPA_THICKNESS_MM,
+      TAPA_DOME_RISE_MM,
+      POST_HOLE_RADIUS_MM,
+      outer_skirt_z1
+    )
     material = costal_material(model, 'Tapa', hex)
     paint_new_faces(entities, material)
   end
@@ -517,21 +539,40 @@ module PlayIdeaCostalScript
     end
   end
 
-  # 36 discos de foam de 1", diámetro = interior del tubo menos un hueco
-  # visual, apilados sin espacio entre ellos -llenan EXACTO los 914.4mm
-  # internos, ver FOAM_DISC_COUNT-. Al no dejarles separación, caras
-  # coincidentes entre discos vecinos pueden fusionarse visualmente -se
-  # ve como un cilindro macizo de foam, no 36 rebanadas distinguibles-;
-  # si el usuario quiere ver las rebanadas por separado hay que meterles
-  # un hueco chico entre cada una -por ahora prioridad es que el relleno
-  # quede exacto a los 36", no la separación visual-.
-  def build_foam_stack(entities, model)
+  def foam_disc_definition(model)
+    name = format(
+      'PlayIdea Foam Disc OD%.2f-ID%.2f-T%.2f',
+      FOAM_DISC_RADIUS_MM * 2.0,
+      POST_HOLE_RADIUS_MM * 2.0,
+      FOAM_DISC_THICKNESS_MM
+    )
+    existing = model.definitions[name]
+    return existing if existing
+
+    definition = model.definitions.add(name)
+    build_annulus_slab(
+      definition.entities,
+      0.0,
+      FOAM_DISC_THICKNESS_MM,
+      FOAM_DISC_RADIUS_MM,
+      POST_HOLE_RADIUS_MM
+    )
     material = costal_material(model, 'Foam', nil, fixed_color: FOAM_COLOR)
+    paint_new_faces(definition.entities, material)
+    definition.set_attribute(DICTIONARY, 'type', 'foam_disc')
+    definition
+  end
+
+  # Construye una sola definición perforada y coloca 36 instancias. Conserva
+  # exactamente el relleno de 36" sin duplicar miles de caras en cada rodillo.
+  def build_foam_stack(entities, model)
+    definition = foam_disc_definition(model)
     FOAM_DISC_COUNT.times do |i|
       z0 = i * FOAM_DISC_THICKNESS_MM
-      build_annulus_slab(entities, z0, FOAM_DISC_THICKNESS_MM, FOAM_DISC_RADIUS_MM, POST_HOLE_RADIUS_MM)
+      transform = Geom::Transformation.translation([0, 0, z0.mm])
+      instance = entities.add_instance(definition, transform)
+      instance.name = format('FOAM-DISC-%02d', i + 1)
     end
-    paint_new_faces(entities, material)
   end
 
   # PVC visible -pedido del usuario: "te faltó poner el tubo PVC"-: una
