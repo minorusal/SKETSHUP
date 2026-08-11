@@ -29,8 +29,9 @@
     </section>
     <section class="card">
       <h2>2. Cargar las vistas</h2>
-      <label for="images">Selecciona las cuatro imágenes del mismo juego</label>
+      <label for="images">Selecciona una o varias imágenes. Puedes abrir este selector varias veces para agregarlas una por una.</label>
       <input id="images" type="file" accept="image/*,.jpg,.jpeg,.jpe,.png,.webp" multiple>
+      <div id="imageCount" class="fact" style="margin-top:9px">Todavía no hay imágenes agregadas.</div>
       <div id="previews"></div>
     </section>
     <section class="card">
@@ -52,8 +53,7 @@
       $('moduleSize').textContent=`${data.module_internal_mm} mm (${(data.module_internal_mm/1000).toFixed(4)} m)`;
       $('zones').innerHTML=data.zones.map(zone=>`<li class="${zone.specialized?'special':''}">${zone.label} — confianza ${Math.round(zone.confidence*100)}%${zone.specialized?' · generador especializado':''}</li>`).join('');
     };
-    $('images').addEventListener('change',event=>{
-      state.files=Array.from(event.target.files||[]).slice(0,8);
+    function renderPreviews(){
       $('previews').innerHTML='';
       state.files.forEach(file=>{
         const box=document.createElement('div');box.className='preview';
@@ -62,7 +62,18 @@
         box.append(img,caption);$('previews').appendChild(box);
         const reader=new FileReader();reader.onload=()=>{img.src=reader.result};reader.readAsDataURL(file);
       });
-      $('prepare').disabled=state.files.length<2;
+      $('imageCount').textContent=state.files.length===0?'Todavía no hay imágenes agregadas.':`${state.files.length} imagen${state.files.length===1?'':'es'} agregada${state.files.length===1?'':'s'} (máximo 8).`;
+      $('prepare').disabled=state.files.length<1;
+    }
+    $('images').addEventListener('change',event=>{
+      const incoming=Array.from(event.target.files||[]);
+      const known=new Set(state.files.map(file=>`${file.name}|${file.size}|${file.lastModified}`));
+      incoming.forEach(file=>{
+        const key=`${file.name}|${file.size}|${file.lastModified}`;
+        if(!known.has(key)&&state.files.length<8){state.files.push(file);known.add(key)}
+      });
+      event.target.value='';
+      renderPreviews();
     });
     $('prepare').addEventListener('click',()=>{
       const images=state.files.map(file=>({name:file.name,type:file.type,size:file.size,last_modified:file.lastModified}));
