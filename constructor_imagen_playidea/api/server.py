@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.19.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.20.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,7 +31,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.19.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.20.0"}
 
 
 class EncodedImage(BaseModel):
@@ -64,6 +64,7 @@ class BatchAnalysisRequest(BaseModel):
 class ReviewDecisionRequest(BaseModel):
     record_name: str
     decision: str
+    posts: list[dict] = Field(default_factory=list)
 
 
 def training_dataset_dir() -> Path:
@@ -260,6 +261,8 @@ def batch_review_decision(job_id: str, payload: ReviewDecisionRequest) -> dict:
         return {"ok": True, "decision": "approved", "already_saved": True}
     example_path = None
     if payload.decision == "approved":
+        if not payload.posts:
+            raise HTTPException(status_code=422, detail="Dibuja por lo menos un poste antes de aprobar.")
         source = Path(record["source_path"])
         example_id = f"ejemplo_batch_{record['sha256'][:12]}"
         example_dir = training_dataset_dir() / example_id
@@ -267,11 +270,15 @@ def batch_review_decision(job_id: str, payload: ReviewDecisionRequest) -> dict:
         image_name = f"vista_01{source.suffix.lower()}"
         shutil.copy2(source, example_dir / image_name)
         size = record["analysis"]["analysis_size"]
-        posts = [post for post in record["analysis"]["post_candidates"] if post.get("structural_post", False)]
-        annotation_posts = [{
-            "post_index": index, "x": post["x_px"], "top_y": post["top_y_px"],
-            "bottom_y": post["bottom_y_px"], "confirmed": True,
-        } for index, post in enumerate(posts)]
+        annotation_posts = []
+        for index, post in enumerate(payload.posts):
+            try:
+                x = float(post["x"]); top_y = float(post["top_y"]); bottom_y = float(post["bottom_y"])
+            except (KeyError, TypeError, ValueError):
+                raise HTTPException(status_code=422, detail="Una de las líneas dibujadas es inválida.")
+            if not 0 <= x <= size["width"] or not 0 <= top_y < bottom_y <= size["height"]:
+                raise HTTPException(status_code=422, detail="Una línea quedó fuera de la imagen.")
+            annotation_posts.append({"post_index": index, "x": x, "top_y": top_y, "bottom_y": bottom_y, "confirmed": True})
         annotation = {
             "schema_version": 1, "example_id": example_id, "analysis_id": job_id,
             "module_internal_mm": 1168.4,
@@ -283,7 +290,7 @@ def batch_review_decision(job_id: str, payload: ReviewDecisionRequest) -> dict:
         }
         (example_dir / "annotations.json").write_text(json.dumps(annotation, ensure_ascii=False, indent=2), encoding="utf-8")
         example_path = str(example_dir)
-    record["review"] = {"decision": payload.decision, "reviewed_at": datetime.now(timezone.utc).isoformat(), "source": "user_confirmation"}
+    record["review"] = {"decision": payload.decision, "reviewed_at": datetime.now(timezone.utc).isoformat(), "source": "user_confirmation", "confirmed_posts": payload.posts if payload.decision == "approved" else []}
     record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True, "decision": payload.decision, "example_path": example_path}
 

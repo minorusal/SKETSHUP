@@ -124,6 +124,7 @@ Flujo esperado:
 - No mezclar verdad dimensional con estimaciones visuales. Los ejemplos con medidas conocidas deben servir posteriormente para entrenar y evaluar un predictor de escala, cantidad de tramos y altura; al analizar imágenes sin medidas, el predictor debe reportar confianza y mantener sus resultados como provisionales hasta superar validación multivista.
 - Para importar bibliotecas reales, buscar carpetas `IMAGES-TM` sin distinguir mayúsculas, agrupar por proyecto, deduplicar por contenido y conservar ruta/origen, resultados y confianza en un manifiesto auditable. Las predicciones masivas nunca son verdad de entrenamiento por sí solas: separar `high_confidence` de `needs_review` y entrenar solamente después de confirmación o de obtener etiquetas desde el modelo SketchUp original.
 - La revisión masiva debe ser incremental y recuperable: registrar aprobación/rechazo en cada resultado, convertir una aprobación explícita en ejemplo `batch_review_user_confirmed` y reentrenar solo cuando el usuario lo ordene. No volver a presentar registros ya revisados ni duplicar ejemplos aprobados.
+- Una bandeja de revisión debe permitir corregir la etiqueta antes de aprobar: agregar postes arrastrando punta/base, borrar una línea al pulsarla, limpiar o restaurar sugerencias. Guardar y entrenar las coordenadas editadas por el usuario, nunca las sugerencias originales descartadas.
 
 ## Verificación mínima
 
