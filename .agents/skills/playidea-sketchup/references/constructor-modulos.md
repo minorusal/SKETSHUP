@@ -126,6 +126,7 @@ Flujo esperado:
 - La revisión masiva debe ser incremental y recuperable: registrar aprobación/rechazo en cada resultado, convertir una aprobación explícita en ejemplo `batch_review_user_confirmed` y reentrenar solo cuando el usuario lo ordene. No volver a presentar registros ya revisados ni duplicar ejemplos aprobados.
 - Una bandeja de revisión debe permitir corregir la etiqueta antes de aprobar: agregar postes arrastrando punta/base, borrar una línea al pulsarla, limpiar o restaurar sugerencias. Guardar y entrenar las coordenadas editadas por el usuario, nunca las sugerencias originales descartadas.
 - Para imágenes isométricas o tomadas de internet, conservar siempre el archivo original y guardar capas separadas de `structure_mask` e `ignore_mask`, además de una imagen limpia derivada. Permitir etiquetar ejes visibles como `z`, `x`, `y` o `diagonal`; estas clases describen direcciones estructurales, no la orientación vertical/horizontal de los píxeles en perspectiva. Solo las máscaras y ejes confirmados por el usuario pueden convertirse en verdad de entrenamiento.
+- Antes de aceptar una interpretación, mostrar un esqueleto 3D rotatorio de palitos y nodos coloreados por eje. En una sola vista, representar solo tramos visibles confirmados y declarar la profundidad como provisional; no completar una cuadrícula oculta para mejorar artificialmente la apariencia. La rotación debe funcionar como auditoría: desconexiones visibles indican correspondencias o vistas adicionales pendientes.
 
 ## Verificación mínima
 
