@@ -223,6 +223,31 @@ module PlayIdea
       UI.messagebox("No fue posible abrir la revisión:\n#{error.message}")
     end
 
+    def start_mask_editor
+      api = start_local_api
+      unless api[:ok]
+        UI.messagebox(api[:message])
+        return
+      end
+      40.times do
+        break if api_running?
+        sleep(0.25)
+      end
+      unless api_running?
+        UI.messagebox('La API local no terminó de arrancar. Revisa el registro de Play Idea.')
+        return
+      end
+      @mask_dialog&.close
+      @mask_dialog = UI::HtmlDialog.new(dialog_title: 'Limpiar y etiquetar estructura', preferences_key: 'PlayIdeaMaskEditor', scrollable: true, resizable: true, width: 1180, height: 860, style: UI::HtmlDialog::STYLE_DIALOG)
+      @mask_dialog.set_file(File.join(__dir__, 'mask_editor.html'))
+      @mask_dialog.add_action_callback('ready') do |_context|
+        @mask_dialog.execute_script("loadMaskEditor(#{JSON.generate(api_url: "http://#{API_HOST}:#{API_PORT}")})")
+      end
+      @mask_dialog.show
+    rescue StandardError => error
+      UI.messagebox("No fue posible abrir el editor de máscara:\n#{error.message}")
+    end
+
     def validate_metric_plan(payload)
       zones = payload['zones'] if payload.is_a?(Hash)
       unless zones.is_a?(Array) && zones.length.between?(1, 20)
@@ -232,7 +257,12 @@ module PlayIdea
       cleaned = zones.map do |zone|
         kind = zone['kind'].to_s
         values = %w[x y width depth levels].map { |key| zone[key].to_i }
-        unless %w[modular special accessory].include?(kind) && values[0].between?(0, 30) && values[1].between?(0, 30) && values[2..4].all? { |value| value.between?(1, 20) }
+        # Límites de x/y/width/depth subidos de 30 a 60 -30 módulos son
+        # ~35m, y el proyecto real más grande visto en la validación
+        # -Cristian-CDMX- mide 42.67m de ancho, ~36.5 módulos; con el
+        # límite viejo esa zona se hubiera rechazado como "inválida" sin
+        # explicación clara del porqué.
+        unless %w[modular special accessory].include?(kind) && values[0].between?(0, 60) && values[1].between?(0, 60) && values[2..3].all? { |value| value.between?(1, 60) } && values[4].between?(1, 20)
           UI.messagebox("Zona inválida: #{zone['label']}")
           return nil
         end
@@ -263,14 +293,19 @@ module PlayIdea
       false
     end
 
+    # `origin` ya viene con el offset x/y de la zona aplicado -lo calcula
+    # la llamada en SkeletonPlacementTool#onLButtonDown, mismo punto que
+    # se le pasa directo a create_module para las zonas modulares-, así
+    # que aquí NO se vuelve a sumar zone[:x]/zone[:y] -antes sí se sumaba
+    # dos veces, bug real que nunca se notó porque este método nunca se
+    # llamaba-.
     def create_placeholder(zone, origin, module_mm)
       model = Sketchup.active_model
       group = model.active_entities.add_group
       group.name = "PRELIMINAR-#{zone[:id].upcase}"
-      x0 = origin.x + zone[:x] * module_mm.mm
-      y0 = origin.y + zone[:y] * module_mm.mm
-      z0_mm = zone[:id] == 'puente' ? module_mm * 2.0 : 0.0
-      z0 = origin.z + z0_mm.mm
+      x0 = origin.x
+      y0 = origin.y
+      z0 = origin.z
       width = zone[:width] * module_mm.mm
       depth = zone[:depth] * module_mm.mm
       height_mm = zone[:kind] == 'accessory' ? 100.0 : zone[:levels] * module_mm
@@ -308,6 +343,7 @@ module PlayIdea
         @input.pick(view, x, y)
         return unless @input.valid?
         module_mm = @plan[:module_internal_mm]
+        counts = { modular: 0, special: 0, accessory: 0 }
         @plan[:zones].each do |zone|
           zone_origin = Geom::Point3d.new(
             @input.position.x + zone[:x] * module_mm.mm,
@@ -322,10 +358,27 @@ module PlayIdea
               connectors: true, padding: false
             }
             PlayIdea::ConstructorModulos.create_module(params, zone_origin)
+          else
+            # `special`/`accessory` -torre circular, puente, tobogán, lo
+            # que no tiene generador propio todavía- antes se ignoraban
+            # aquí en silencio: la zona SÍ aparecía en la tabla y en el
+            # dibujo SVG del diálogo, pero al crear en SketchUp
+            # simplemente no pasaba nada para ellas, sin aviso. Ahora
+            # dejan un marcador -PlayIdea.create_placeholder, ya existía
+            # en este archivo pero nunca se llamaba-, mismo criterio que
+            # el reference case Pi.03315: "los accesorios especiales se
+            # conservarán como marcadores hasta contar con su generador
+            # correspondiente".
+            PlayIdea::ConstructorImagen.create_placeholder(zone, zone_origin, module_mm)
           end
+          counts[zone[:kind].to_sym] += 1
         end
         Sketchup.active_model.select_tool(nil)
-        UI.messagebox('Estructura con tubos y conectores creada. Revisa ancho, fondo y niveles antes de continuar con accesorios.')
+        UI.messagebox(
+          "Creadas #{counts[:modular]} zona(s) modular(es) -tubos y conectores reales-, " \
+          "#{counts[:special] + counts[:accessory]} marcador(es) -special/accessory, sin geometría real todavía-.\n\n" \
+          'Revisa ancho, fondo, niveles y posición de cada zona antes de continuar con accesorios.'
+        )
       rescue StandardError => error
         UI.messagebox("No fue posible crear el esqueleto:\n#{error.message}")
         puts error.full_message
@@ -345,6 +398,7 @@ module PlayIdea
       menu.add_item('Cargar vistas de un juego') { start }
       menu.add_item('Analizar carpetas IMAGES-TM por lotes') { start_batch_import }
       menu.add_item('Revisar y aprobar detecciones') { start_batch_review }
+      menu.add_item('Limpiar imagen y marcar estructura') { start_mask_editor }
       menu.add_item('Generar dataset sintético de postes') { generate_synthetic_dataset }
       file_loaded(__FILE__)
     end

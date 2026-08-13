@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.20.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.23.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,7 +31,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.20.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.23.0"}
 
 
 class EncodedImage(BaseModel):
@@ -67,8 +67,70 @@ class ReviewDecisionRequest(BaseModel):
     posts: list[dict] = Field(default_factory=list)
 
 
+class MaskAnnotationRequest(BaseModel):
+    image: EncodedImage
+    structure_mask_data_url: str
+    ignore_mask_data_url: str
+    cleaned_image_data_url: str
+    lines: list[dict] = Field(default_factory=list)
+    image_width: int
+    image_height: int
+
+
 def training_dataset_dir() -> Path:
     return Path.home() / "Library" / "Application Support" / "PlayIdea" / "constructor_imagen_dataset"
+
+
+def decode_data_url(data_url: str) -> bytes:
+    encoded = data_url.split(",", 1)[1] if "," in data_url else data_url
+    return base64.b64decode(encoded, validate=True)
+
+
+@app.post("/mask-annotation")
+def save_mask_annotation(payload: MaskAnnotationRequest) -> dict:
+    if not 1 <= payload.image_width <= 12_000 or not 1 <= payload.image_height <= 12_000:
+        raise HTTPException(status_code=422, detail="Dimensiones de imagen inválidas.")
+    allowed_types = {"z", "x", "y", "diagonal"}
+    normalized_lines = []
+    for index, line in enumerate(payload.lines):
+        try:
+            line_type = str(line["type"]).lower()
+            x1, y1, x2, y2 = (float(line[key]) for key in ("x1", "y1", "x2", "y2"))
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=422, detail=f"Línea {index + 1} inválida.")
+        if line_type not in allowed_types:
+            raise HTTPException(status_code=422, detail=f"Tipo de línea {line_type} inválido.")
+        if not all((0 <= x1 <= payload.image_width, 0 <= x2 <= payload.image_width, 0 <= y1 <= payload.image_height, 0 <= y2 <= payload.image_height)):
+            raise HTTPException(status_code=422, detail=f"Línea {index + 1} fuera de la imagen.")
+        if math.hypot(x2 - x1, y2 - y1) < 4:
+            continue
+        normalized_lines.append({"index": len(normalized_lines), "type": line_type, "x1": x1, "y1": y1, "x2": x2, "y2": y2, "confirmed": True})
+    example_id = f"mascara_{uuid.uuid4().hex[:12]}"
+    directory = training_dataset_dir() / "mask_annotations" / example_id
+    directory.mkdir(parents=True, exist_ok=False)
+    try:
+        original = decode_data_url(payload.image.data_url)
+        structure_mask = decode_data_url(payload.structure_mask_data_url)
+        ignore_mask = decode_data_url(payload.ignore_mask_data_url)
+        cleaned = decode_data_url(payload.cleaned_image_data_url)
+        (directory / "original.png").write_bytes(original)
+        (directory / "structure_mask.png").write_bytes(structure_mask)
+        (directory / "ignore_mask.png").write_bytes(ignore_mask)
+        (directory / "cleaned.png").write_bytes(cleaned)
+        annotation = {
+            "schema_version": 1, "example_id": example_id,
+            "source": "user_mask_ground_truth", "original_name": payload.image.name,
+            "image_width": payload.image_width, "image_height": payload.image_height,
+            "files": {"original": "original.png", "structure_mask": "structure_mask.png", "ignore_mask": "ignore_mask.png", "cleaned": "cleaned.png"},
+            "lines": normalized_lines,
+            "line_counts": {line_type: sum(1 for line in normalized_lines if line["type"] == line_type) for line_type in allowed_types},
+            "training_policy": "confirmed_masks_and_axes_only",
+        }
+        (directory / "annotations.json").write_text(json.dumps(annotation, ensure_ascii=False, indent=2), encoding="utf-8")
+    except (ValueError, binascii.Error, OSError) as error:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=f"No se pudo guardar la máscara: {error}")
+    return {"ok": True, "example_id": example_id, "path": str(directory), "line_counts": annotation["line_counts"]}
 
 
 POST_WINDOW = (32, 128)
@@ -131,7 +193,7 @@ def run_batch_analysis(job_id: str, max_images: int) -> None:
                 seen_hashes.add(digest)
                 view = analyze_image(raw, image_path.name)
                 view.pop("overlay_data_url", None)
-                structural = [post for post in view["post_candidates"] if post.get("structural_post", post.get("structural_blue", False))]
+                structural = [post for post in view["post_candidates"] if post.get("structural_post", post.get("structural_colored", False))]
                 mean_confidence = round(sum(post["confidence"] for post in structural) / len(structural), 3) if structural else 0.0
                 confidence_class = "high_confidence" if len(structural) >= 4 and mean_confidence >= 0.72 and view["projected_grid_groups"] else "needs_review"
                 record = {
@@ -356,7 +418,7 @@ def apply_learned_post_model(image: np.ndarray, candidates: list[dict]) -> None:
     height, width = image.shape[:2]
     for candidate in candidates:
         if model is None:
-            candidate["structural_post"] = candidate["structural_blue"]
+            candidate["structural_post"] = candidate["structural_colored"]
             candidate["detector_source"] = "color_heuristic"
             continue
         descriptor = post_descriptor(image, candidate).reshape(1, -1)
@@ -586,7 +648,17 @@ def build_post_candidates(segments: list[dict], width: int, height: int) -> list
         total_length = sum(item["length_px"] for item in cluster)
         blue_ratio = sum(item["blue_ratio"] * item["length_px"] for item in cluster) / total_length
         structural_blue = blue_ratio >= 0.12
-        confidence = min(0.99, 0.18 + (span / height) * 0.82 + min(len(cluster), 6) * 0.045 + min(blue_ratio, 0.5) * 0.7)
+        # Los postes reales de esta línea de producto vienen en 8 colores del
+        # catálogo estándar (ver STANDARD_COLOR_PALETTE en constructor_
+        # modulos_playidea), no solo azul. `blue_ratio` -y por lo tanto
+        # `confidence`- penalizaba estructuras de otros colores -verde,
+        # magenta, naranja, etc.- aunque fueran igual de "postes" que uno
+        # azul. `colored_ratio` usa el mismo patrón de agregación pero sobre
+        # saturación/valor -cualquier tono vivo cuenta-, no sobre el matiz
+        # específico del azul.
+        colored_ratio = sum(item["saturation_ratio"] * item["length_px"] for item in cluster) / total_length
+        structural_colored = colored_ratio >= 0.12
+        confidence = min(0.99, 0.18 + (span / height) * 0.82 + min(len(cluster), 6) * 0.045 + min(colored_ratio, 0.5) * 0.7)
         candidates.append({
             "x_px": round(center_mean, 1),
             "top_y_px": int(top),
@@ -595,6 +667,8 @@ def build_post_candidates(segments: list[dict], width: int, height: int) -> list
             "segment_count": len(cluster),
             "blue_ratio": round(blue_ratio, 3),
             "structural_blue": structural_blue,
+            "colored_ratio": round(colored_ratio, 3),
+            "structural_colored": structural_colored,
             "confidence": round(confidence, 2),
         })
     return candidates
@@ -602,7 +676,7 @@ def build_post_candidates(segments: list[dict], width: int, height: int) -> list
 
 def projected_grid_groups(posts: list[dict], module_internal_mm: float, image_height: int) -> list[dict]:
     selected = sorted(
-        [post for post in posts if post.get("structural_post", post["structural_blue"]) and post["confidence"] >= 0.45],
+        [post for post in posts if post.get("structural_post", post["structural_colored"]) and post["confidence"] >= 0.45],
         key=lambda post: (post["bottom_y_px"], post["top_y_px"]),
     )
     if len(selected) < 2:
@@ -630,9 +704,18 @@ def projected_grid_groups(posts: list[dict], module_internal_mm: float, image_he
         upper = np.percentile(gaps, 75)
         compact = gaps[gaps <= upper]
         typical = float(np.median(compact if len(compact) else gaps))
+        # Antes se cortaba el grupo en cuanto UN hueco superaba 2.4x el
+        # paso típico, así que un solo poste no detectado -oclusión, mala
+        # luz, o simplemente ese color no lo reconoció el clasificador-
+        # fragmentaba la fila entera en pedacitos chicos. Validado contra
+        # 17 proyectos reales -ver skill/reference-: eso hacía que
+        # estructuras de 20-35 módulos de ancho terminaran "detectadas"
+        # como de 1-4 módulos. Ahora el corte es mucho más permisivo -solo
+        # separa cuando el hueco es TAN grande que es más probable que sea
+        # otra ala/estructura separada, no un poste faltante-.
         current = [row[0]]
         for post, gap in zip(row[1:], gaps):
-            if gap > typical * 2.4:
+            if typical > 0 and gap > typical * 6.0:
                 if len(current) >= 2:
                     groups.append(current)
                 current = [post]
@@ -640,14 +723,29 @@ def projected_grid_groups(posts: list[dict], module_internal_mm: float, image_he
                 current.append(post)
         if len(current) >= 2:
             groups.append(current)
-    return [{
-        "post_count": len(group),
-        "provisional_bay_count": len(group) - 1,
-        "projected_step_px": round(float(np.median(np.diff([post["x_px"] for post in group]))), 1),
-        "span_px": round(group[-1]["x_px"] - group[0]["x_px"], 1),
-        "module_internal_mm": module_internal_mm,
-        "confidence": 0.45,
-    } for group in groups]
+
+    results = []
+    for group in groups:
+        xs = [post["x_px"] for post in group]
+        gaps = np.diff(xs)
+        upper = np.percentile(gaps, 75)
+        compact = gaps[gaps <= upper]
+        typical = float(np.median(compact if len(compact) else gaps))
+        span = xs[-1] - xs[0]
+        # Bahías estimadas por SPAN/PASO -no por conteo de postes
+        # detectados consecutivos-: tolera huecos por detecciones
+        # faltantes en medio de la fila, mientras el paso típico y la
+        # extensión total sí se hayan medido bien.
+        estimated_bay_count = max(1, round(span / typical)) if typical > 0 else max(1, len(group) - 1)
+        results.append({
+            "post_count": len(group),
+            "provisional_bay_count": estimated_bay_count,
+            "projected_step_px": round(typical, 1),
+            "span_px": round(span, 1),
+            "module_internal_mm": module_internal_mm,
+            "confidence": 0.45,
+        })
+    return results
 
 
 def assign_provisional_post_heights(candidates: list[dict], grid_groups: list[dict], segments: list[dict], width: int, height: int, module_internal_mm: float) -> None:
@@ -831,13 +929,19 @@ def multiview_correspondence(raw_images: list[tuple[bytes, str]], views: list[di
 
 def strongest_grid(view: dict) -> dict | None:
     groups = view.get("projected_grid_groups", [])
-    return max(groups, key=lambda group: (group["post_count"], group["span_px"]), default=None)
+    # Antes priorizaba `post_count` -cuántos postes se lograron
+    # emparejar sin huecos-, así que un grupito denso y angosto le
+    # ganaba a una fila ancha pero con detecciones dispersas. Para
+    # estimar el ANCHO real de la estructura, lo que importa es
+    # `span_px` -qué tanto abarca en la imagen-, no cuántos postes
+    # individuales se alcanzaron a emparejar.
+    return max(groups, key=lambda group: (group["span_px"], group["post_count"]), default=None)
 
 
 def inferred_levels(view: dict, grid: dict | None) -> int:
     if not grid or grid["projected_step_px"] <= 0:
         return 1
-    structural = [post for post in view["post_candidates"] if post.get("structural_post", post["structural_blue"])]
+    structural = [post for post in view["post_candidates"] if post.get("structural_post", post["structural_colored"])]
     if not structural:
         return 1
     median_height = float(np.median([post["span_px"] for post in structural]))

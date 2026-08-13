@@ -36,9 +36,10 @@
       <div class="facts"><div class="fact"><b>Caso</b><span id="caseId">—</span></div><div class="fact"><b>Módulo interior</b><span id="moduleSize">—</span></div></div>
     </section>
     <section class="card">
-      <h2>2. Medidas conocidas (opcionales y usadas para aprendizaje)</h2>
-      <div class="known-grid"><div><label for="knownX">Tramos X</label><input id="knownX" placeholder="Ej. 1, 1, 0.5, 1"></div><div><label for="knownY">Tramos Y</label><input id="knownY" placeholder="Ej. 1, 0.5, 1"></div><div><label for="knownHeight">Altura total (m)</label><input id="knownHeight" type="number" min="0" step="0.01" placeholder="Ej. 3.50"></div></div>
-      <div class="topology-note">Usa 1 para 1168.4 mm y 0.5 para 584.2 mm. Puedes dejar todo vacío si desconoces las medidas.</div>
+      <h2>2. Medidas reales (obligatorias)</h2>
+      <div class="warning" style="margin-bottom:10px"><b>Por qué ya no es opcional:</b> adivinar el tamaño real solo con líneas detectadas en la imagen se probó contra 17 proyectos reales y el error típico fue de 75-100% -inservible-. El módulo mide siempre 1.1684m fijo, así que con el ancho/largo/alto real -que ya tienes en tu ficha técnica de cada proyecto- se arma la cuadrícula EXACTA; la imagen solo ayuda a decidir el acomodo dentro de esa cuadrícula.</div>
+      <div class="known-grid"><div><label for="knownWidth">Ancho real (m)</label><input id="knownWidth" type="number" min="0" step="0.01" placeholder="Ej. 22.71"></div><div><label for="knownDepth">Largo real (m)</label><input id="knownDepth" type="number" min="0" step="0.01" placeholder="Ej. 10.01"></div><div><label for="knownHeight">Altura real (m)</label><input id="knownHeight" type="number" min="0" step="0.01" placeholder="Ej. 5.10"></div></div>
+      <div class="topology-note">Se redondea al módulo más cercano -1.1684m-. Si tienes medio módulo en algún tramo, avisa después de crear la cuadrícula para ajustarlo a mano en el editor.</div>
     </section>
     <section class="card">
       <h2>3. Cargar las vistas</h2>
@@ -119,11 +120,21 @@
       renderPreviews();
       showStatus('Imágenes listas para el análisis local.');
     });
+    // El tamaño real -ancho/largo/alto en metros, lo que ya trae CUALQUIER
+    // ficha técnica- ahora es la fuente de verdad, no la imagen: se
+    // redondea al módulo más cercano -1168.4mm, fijo para toda esta línea
+    // de producto- y se arma un arreglo UNIFORME de tramos -sin medios
+    // módulos todavía, se ajustan a mano después en la tabla editable si
+    // hace falta-. Antes esto pedía que el usuario ya supiera y tecleara
+    // el desglose de tramos -"1, 1, 0.5, 1"-, que es justo lo que este
+    // flujo debía calcular por él.
     function parseKnownDimensions(){
-      const parseAxis=(value,label)=>{if(!value.trim())return[];return value.split(',').map(token=>{const number=Number(token.trim());if(number===1)return 1168.4;if(number===0.5)return 584.2;if(Math.abs(number-1.1684)<0.0001)return 1168.4;if(Math.abs(number-0.5842)<0.0001)return 584.2;throw new Error(`${label}: usa solamente 1, 0.5, 1.1684 o 0.5842`)})};
-      const spacingX=parseAxis($('knownX').value,'Tramos X'),spacingY=parseAxis($('knownY').value,'Tramos Y');const heightM=Number($('knownHeight').value||0);
-      if((spacingX.length||spacingY.length||heightM>0)&&(!spacingX.length||!spacingY.length||heightM<=0))throw new Error('Para usar medidas conocidas completa X, Y y altura total.');
-      return spacingX.length?{spacing_x_mm:spacingX,spacing_y_mm:spacingY,height_mm:heightM*1000,total_x_mm:spacingX.reduce((a,b)=>a+b,0),total_y_mm:spacingY.reduce((a,b)=>a+b,0),view_types:state.files.map(file=>file.viewType||'auto'),source:'user_ground_truth'}:{};
+      const moduleMm=state.reference.module_internal_mm;
+      const widthM=Number($('knownWidth').value||0),depthM=Number($('knownDepth').value||0),heightM=Number($('knownHeight').value||0);
+      if(widthM<=0||depthM<=0||heightM<=0)throw new Error('Captura ancho, largo y altura reales -en metros- antes de analizar.');
+      const countX=Math.max(1,Math.round(widthM*1000/moduleMm)),countY=Math.max(1,Math.round(depthM*1000/moduleMm));
+      const spacingX=Array(countX).fill(moduleMm),spacingY=Array(countY).fill(moduleMm);
+      return {spacing_x_mm:spacingX,spacing_y_mm:spacingY,height_mm:heightM*1000,total_x_mm:spacingX.reduce((a,b)=>a+b,0),total_y_mm:spacingY.reduce((a,b)=>a+b,0),view_types:state.files.map(file=>file.viewType||'auto'),source:'user_ground_truth'};
     }
     $('prepare').addEventListener('click',async()=>{
       let knownDimensions;try{knownDimensions=parseKnownDimensions()}catch(error){showStatus(error.message,'error');return}
@@ -149,7 +160,14 @@
         const totalInliers=mv.pairs.reduce((sum,pair)=>sum+pair.geometric_inliers,0);
         $('multiviewSummary').style.display='block';
         $('multiviewSummary').innerHTML=`<b>Cruce multivista</b>Vista frontal de referencia: ${mv.front_anchor_view}. Vista de profundidad: ${mv.depth_anchor_view}. ${mv.strong_pair_count} de ${mv.pair_count} pares fuertes; ${totalInliers} correspondencias geométricas confirmadas. Estado: ${mv.status}.`;
-        showStatus('Marca los postes en cada vista: arrastra de la punta superior a la base. Pulsa una línea para borrarla y confirma cada vista.','working');
+        // La cuadrícula YA queda confirmada -medidas reales que
+        // capturaste arriba-, así que el resultado de layout se muestra
+        // de inmediato: no hace falta marcar postes en cada vista para
+        // eso -esa parte de abajo, "marca los postes", ahora es opcional,
+        // solo sirve para aportar ejemplos de entrenamiento al detector-.
+        renderTopology(result.topology);
+        renderMetricPlan(result.metric_plan);
+        showStatus('Cuadrícula confirmada. Divide las zonas en la tabla de abajo según lo que veas en las imágenes -opcional: marca los postes en cada vista para ayudar a entrenar el detector-.','working');
         const compact={...result,views:result.views.map(view=>{const copy={...view};delete copy.overlay_data_url;return copy})};
         $('result').textContent=JSON.stringify(compact,null,2);$('result').style.display='block';
       }catch(error){showStatus(`No fue posible analizar las imágenes: ${error.message}`,'error')}
@@ -160,7 +178,7 @@
       const sx=view.analysis_size.width/view.original_size.width,sy=view.analysis_size.height/view.original_size.height;
       const projectedStep=view.projected_grid_groups.length?view.projected_grid_groups.map(group=>group.projected_step_px).sort((a,b)=>a-b)[Math.floor(view.projected_grid_groups.length/2)]:null;
       const heightFor=(span,levels=null)=>{const count=levels||Math.max(1,Math.min(8,Math.round(span/(projectedStep||span))));return{levels:count,height_mm:Math.round(count*state.reference.module_internal_mm)}};
-      const marks=view.post_candidates.filter(post=>(post.structural_post??post.structural_blue)).map(post=>({x:post.x_px,y1:post.top_y_px,y2:post.bottom_y_px,automatic:true,...heightFor(post.span_px,post.provisional_levels)}));
+      const marks=view.post_candidates.filter(post=>(post.structural_post??post.structural_colored)).map(post=>({x:post.x_px,y1:post.top_y_px,y2:post.bottom_y_px,automatic:true,...heightFor(post.span_px,post.provisional_levels)}));
       const edit={marks,confirmed:false,width:view.analysis_size.width,height:view.analysis_size.height};state.postEdits[index]=edit;
       const card=document.createElement('div');card.className='analysis-view';card.dataset.view=index;
       const canvas=document.createElement('div');canvas.className='post-canvas';
@@ -258,21 +276,67 @@
       $('topology').innerHTML=`<b>Estructura modular detectada</b><svg viewBox="0 0 100 100" role="img" aria-label="Estructura detectada">${edges}${nodes}</svg><div class="topology-note">Este resultado proviene solo de las imágenes cargadas. Confirma ancho, fondo y niveles en la tabla.</div>`;
       $('topology').style.display='block';
     }
+    // LAYOUT -pedido del usuario: usar la imagen para acomodar zonas
+    // dentro de la cuadrícula YA confirmada por medidas reales, no para
+    // adivinar el tamaño-. `renderMetricPlan` empieza con 1 sola zona
+    // -toda la cuadrícula confirmada-; el usuario la divide a mano,
+    // viendo la imagen al lado, en tantas zonas como alas/torres/puentes
+    // vea -"modular" arma tubos y conectores reales, "special"/
+    // "accessory" solo dejan un marcador de color, ver create_placeholder
+    // en main.rb, para lo que todavía no tiene generador propio: torre
+    // circular, puente, tobogán-. Nada de esto intenta detectar zonas
+    // automáticamente desde la imagen -esa idea ya se abandonó para el
+    // TAMAÑO por lo poco confiable que salió; dividir zonas a mano, con
+    // la imagen de referencia al lado, es rápido y no arriesga otro 75%
+    // de error-.
+    function zoneRowHtml(zone){
+      const kindOptions=['modular','special','accessory'].map(kind=>`<option value="${kind}" ${zone.kind===kind?'selected':''}>${kind}</option>`).join('');
+      const numeric=['x','y','width','depth','levels'].map(key=>`<td><input type="number" min="${key==='x'||key==='y'?0:1}" step="1" data-zone="${zone.id}" data-key="${key}" value="${zone[key]}"></td>`).join('');
+      return `<tr><td><input type="text" data-zone="${zone.id}" data-key="label" value="${zone.label}" style="width:84px"></td><td><select data-zone="${zone.id}" data-key="kind">${kindOptions}</select></td>${numeric}<td><button class="zone-remove" data-zone="${zone.id}" style="width:auto;padding:5px 9px;background:#8b3c32">Quitar</button></td></tr>`;
+    }
+    function bindZoneInputs(){
+      $('metricPlan').querySelectorAll('input[data-zone],select[data-zone]').forEach(input=>{
+        input.onchange=()=>{
+          const zone=state.metricPlan.zones.find(item=>item.id===input.dataset.zone);
+          const key=input.dataset.key;
+          if(key==='label'||key==='kind')zone[key]=input.value;
+          else zone[key]=Math.max(+(input.min||0),Math.round(+input.value||0));
+          drawMetricPlan();
+        };
+      });
+      $('metricPlan').querySelectorAll('.zone-remove').forEach(button=>{
+        button.onclick=()=>{
+          if(state.metricPlan.zones.length<=1){showStatus('Debe quedar al menos 1 zona.','error');return}
+          state.metricPlan.zones=state.metricPlan.zones.filter(zone=>zone.id!==button.dataset.zone);
+          renderMetricPlan(state.metricPlan);
+        };
+      });
+      $('addZone').onclick=()=>{
+        const index=state.metricPlan.zones.length+1;
+        state.metricPlan.zones.push({id:`zona_manual_${Date.now()}`,label:`Zona ${index}`,kind:'modular',x:0,y:0,width:1,depth:1,levels:1,confidence:1,source:'user_manual'});
+        renderMetricPlan(state.metricPlan);
+      };
+      $('applyGrid').onclick=()=>{drawMetricPlan();showStatus('Cuadrícula provisional actualizada en esta sesión.');};
+      $('createSkeleton').onclick=()=>{
+        if(confirm('Se crearán tubos/conectores reales para las zonas "modular", y solo un marcador de color para "special"/"accessory". ¿Continuar?'))sketchup.createSkeleton(state.metricPlan);
+      };
+    }
     function renderMetricPlan(plan){
       if(!plan||!plan.zones.length){showStatus((plan&&plan.message)||'No se pudo detectar una cuadrícula estructural. Usa vistas más claras o edita la planta manualmente.','error');return}
       state.metricPlan=plan;
-      const rows=plan.zones.map(zone=>`<tr><td>${zone.label}</td>${['x','y','width','depth','levels'].map(key=>`<td><input type="number" min="${key==='x'||key==='y'?0:1}" step="1" data-zone="${zone.id}" data-key="${key}" value="${zone[key]}"></td>`).join('')}</tr>`).join('');
-      $('metricPlan').innerHTML=`<b>Cuadrícula estructural editable</b><div id="metricDrawing"></div><table class="metric-table"><thead><tr><th>Zona</th><th>X</th><th>Y</th><th>Ancho</th><th>Fondo</th><th>Niveles</th></tr></thead><tbody>${rows}</tbody></table><div class="fact" style="margin-top:8px"><b>Se construirán solamente</b>Tubos estructurales y conectores Play Idea.</div><button class="apply-grid" id="applyGrid">Aplicar cambios a la estructura</button><button id="createSkeleton">Crear tubos y conectores en SketchUp</button><div class="topology-note">Cada cuadro mide ${plan.module_internal_mm} mm internamente. Corrige las cantidades si la perspectiva ocultó algún poste.</div>`;
+      const rows=plan.zones.map(zoneRowHtml).join('');
+      $('metricPlan').innerHTML=`<b>Cuadrícula estructural editable</b>
+        <div class="topology-note">Divide la cuadrícula -ya confirmada por tus medidas reales- en una zona por cada ala/torre/puente que veas en las imágenes cargadas. "modular" arma tubos y conectores de verdad; "special"/"accessory" solo dejan un marcador de color -para lo que todavía no tiene generador propio, como torre circular, puente o tobogán-.</div>
+        <div id="metricDrawing"></div>
+        <table class="metric-table"><thead><tr><th>Zona</th><th>Tipo</th><th>X</th><th>Y</th><th>Ancho</th><th>Fondo</th><th>Niveles</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+        <button id="addZone" style="margin-top:8px;background:#1976a8">+ Agregar zona</button>
+        <div class="fact" style="margin-top:8px"><b>Al crear</b>"modular" = tubos y conectores reales. "special"/"accessory" = solo un marcador de color, sin geometría real todavía.</div>
+        <button class="apply-grid" id="applyGrid">Aplicar cambios en esta vista</button>
+        <button id="createSkeleton">Crear en SketchUp</button>
+        <div class="topology-note">Cada cuadro mide ${plan.module_internal_mm} mm internamente. X/Y son la posición de la esquina de la zona dentro de la cuadrícula confirmada -0,0 es la esquina donde harás clic en SketchUp-.</div>`;
       $('metricPlan').style.display='block';
       drawMetricPlan();
-      $('applyGrid').onclick=()=>{
-        $('metricPlan').querySelectorAll('input[data-zone]').forEach(input=>{const zone=state.metricPlan.zones.find(item=>item.id===input.dataset.zone);zone[input.dataset.key]=Math.max(+(input.min||0),Math.round(+input.value||0))});
-        drawMetricPlan();showStatus('Cuadrícula provisional actualizada en esta sesión.');
-      };
-      $('createSkeleton').onclick=()=>{
-        $('applyGrid').click();
-        if(confirm('Se crearán únicamente tubos estructurales y conectores. ¿Continuar?'))sketchup.createSkeleton(state.metricPlan);
-      };
+      bindZoneInputs();
     }
     function drawMetricPlan(){
       const plan=state.metricPlan,cell=36,pad=24,w=plan.grid_width_modules*cell+pad*2,h=plan.grid_depth_modules*cell+pad*2;
