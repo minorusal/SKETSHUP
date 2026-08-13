@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 
-app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.24.0")
+app = FastAPI(title="Play Idea Constructor desde Imágenes", version="0.24.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,7 +31,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.24.0"}
+    return {"ok": True, "service": "constructor_imagen_playidea", "version": "0.24.1"}
 
 
 class EncodedImage(BaseModel):
